@@ -79,3 +79,8 @@ Label rules:
 - NVIDIA GPUs use CUDA when available; otherwise, rendering falls back to CPU
 
 - `build/`, `dist/`, and `__pycache__/` are ignored by `.gitignore`; do not commit build artifacts
+
+## Acknowledgements
+
+Built with [Mitsuba Renderer](https://www.mitsuba-renderer.org/).  
+Thanks to the Mitsuba team for providing the original rendering framework.
