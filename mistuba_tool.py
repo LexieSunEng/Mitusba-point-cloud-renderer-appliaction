@@ -1,8 +1,11 @@
 import sys
 import os
+import pickle
+import subprocess
+import tempfile
+import threading
+import time
 import numpy as np
-import imageio
-import OpenEXR, Imath
 import mitsuba as mi
 from matplotlib.colors import LinearSegmentedColormap
 
@@ -10,9 +13,9 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel, QFileDialog, QVBoxLayout,
     QHBoxLayout, QSpinBox, QDoubleSpinBox, QTextEdit, QMessageBox, QGroupBox,
     QFormLayout, QComboBox, QCheckBox, QColorDialog, QSizePolicy, QScrollArea,
-    QFrame, QSplitter, QProgressBar
+    QFrame, QSplitter, QProgressBar, QShortcut
 )
-from PyQt5.QtGui import QPixmap, QImage, QColor
+from PyQt5.QtGui import QPixmap, QImage, QColor, QKeySequence
 from PyQt5.QtCore import Qt, QSettings, QThread, QObject, QTimer, pyqtSignal
 
 
@@ -72,18 +75,154 @@ def normalize_pointcloud(v):
     return v, center, scale
 
 
+def bitmap_to_rgb(bitmap):
+    """Mitsuba 位图转为 H×W×3 float32。不经过 OpenEXR / imageio。"""
+    array = np.asarray(bitmap)
+    if array.ndim == 2:
+        array = array[:, :, None]
+    if array.shape[-1] == 4:
+        array = array[:, :, :3]
+    if array.shape[-1] == 1:
+        array = np.repeat(array, 3, axis=2)
+    if array.ndim != 3 or array.shape[2] != 3:
+        raise ValueError(f"无法识别的图像形状：{array.shape}")
+    return np.ascontiguousarray(array, dtype=np.float32)
+
+
+def _tiff_short(value):
+    return int(value).to_bytes(2, "little")
+
+
+def _tiff_long(value):
+    return int(value).to_bytes(4, "little")
+
+
+def write_float_tiff(path, rgb):
+    """写未压缩的小端 float32 RGB TIFF。
+
+    打包后的 imageio / imagecodecs 会和 Mitsuba 的动态库冲突并访问冲突，
+    所以这里不用第三方图像库。
+    """
+    rgb = np.ascontiguousarray(rgb, dtype="<f4")
+    if rgb.ndim != 3 or rgb.shape[2] != 3:
+        raise ValueError("TIFF 需要 H×W×3 图像")
+    height, width, _ = rgb.shape
+    data = rgb.tobytes()
+
+    tag_count = 13
+    ifd_bytes = 2 + tag_count * 12 + 4
+    extra_start = 8 + ifd_bytes
+    bits_off = extra_start
+    format_off = bits_off + 6
+    xres_off = format_off + 6
+    yres_off = xres_off + 8
+    image_off = yres_off + 8
+    if image_off % 4:
+        image_off += 4 - (image_off % 4)
+
+    def entry(tag, typ, count, value):
+        return _tiff_short(tag) + _tiff_short(typ) + _tiff_long(count) + value
+
+    entries = [
+        entry(256, 4, 1, _tiff_long(width)),
+        entry(257, 4, 1, _tiff_long(height)),
+        entry(258, 3, 3, _tiff_long(bits_off)),
+        entry(259, 3, 1, _tiff_short(1) + b"\x00\x00"),
+        entry(262, 3, 1, _tiff_short(2) + b"\x00\x00"),
+        entry(273, 4, 1, _tiff_long(image_off)),
+        entry(277, 3, 1, _tiff_short(3) + b"\x00\x00"),
+        entry(278, 4, 1, _tiff_long(height)),
+        entry(279, 4, 1, _tiff_long(len(data))),
+        entry(282, 5, 1, _tiff_long(xres_off)),
+        entry(283, 5, 1, _tiff_long(yres_off)),
+        entry(284, 3, 1, _tiff_short(1) + b"\x00\x00"),
+        entry(339, 3, 3, _tiff_long(format_off)),
+    ]
+    ifd = _tiff_short(len(entries)) + b"".join(entries) + _tiff_long(0)
+    extra = bytearray(image_off - extra_start)
+    extra[0:6] = b"".join(_tiff_short(v) for v in (32, 32, 32))
+    extra[format_off - extra_start:format_off - extra_start + 6] = b"".join(
+        _tiff_short(v) for v in (3, 3, 3)
+    )
+    extra[xres_off - extra_start:xres_off - extra_start + 8] = _tiff_long(72) + _tiff_long(1)
+    extra[yres_off - extra_start:yres_off - extra_start + 8] = _tiff_long(72) + _tiff_long(1)
+
+    with open(path, "wb") as handle:
+        handle.write(b"II" + _tiff_short(42) + _tiff_long(8))
+        handle.write(ifd)
+        handle.write(extra)
+        handle.write(data)
+
+
+def _tiff_values(blob, typ, count, raw):
+    if typ == 3:
+        if count == 1:
+            return [int.from_bytes(raw[:2], "little")]
+        offset = int.from_bytes(raw, "little")
+        return [
+            int.from_bytes(blob[offset + 2 * i:offset + 2 * i + 2], "little")
+            for i in range(count)
+        ]
+    if typ == 4:
+        if count == 1:
+            return [int.from_bytes(raw, "little")]
+        offset = int.from_bytes(raw, "little")
+        return [
+            int.from_bytes(blob[offset + 4 * i:offset + 4 * i + 4], "little")
+            for i in range(count)
+        ]
+    raise ValueError(f"不支持的 TIFF 字段类型：{typ}")
+
+
+def read_tiff(path):
+    """读取本程序写出的未压缩 RGB TIFF（float32 或 uint8）。"""
+    with open(path, "rb") as handle:
+        blob = handle.read()
+    if len(blob) < 8 or blob[:2] != b"II" or int.from_bytes(blob[2:4], "little") != 42:
+        raise ValueError("只支持小端未压缩 TIFF")
+    offset = int.from_bytes(blob[4:8], "little")
+    count = int.from_bytes(blob[offset:offset + 2], "little")
+    tags = {}
+    pos = offset + 2
+    for _ in range(count):
+        tag = int.from_bytes(blob[pos:pos + 2], "little")
+        typ = int.from_bytes(blob[pos + 2:pos + 4], "little")
+        number = int.from_bytes(blob[pos + 4:pos + 8], "little")
+        tags[tag] = (typ, number, blob[pos + 8:pos + 12])
+        pos += 12
+
+    def values(tag, default=None):
+        if tag not in tags:
+            if default is None:
+                raise ValueError(f"TIFF 缺少字段 {tag}")
+            return default
+        typ, number, raw = tags[tag]
+        return _tiff_values(blob, typ, number, raw)
+
+    width = values(256)[0]
+    height = values(257)[0]
+    bits = values(258)
+    if values(259)[0] != 1 or values(284, [1])[0] != 1:
+        raise ValueError("只支持未压缩、逐像素排列的 TIFF")
+    samples = values(277, [1])[0]
+    sample_format = values(339, [1] * samples)
+    strips = values(273)
+    counts = values(279)
+    if len(strips) != 1 or len(counts) != 1:
+        raise ValueError("只支持单条带 TIFF")
+    start = strips[0]
+    raw = blob[start:start + counts[0]]
+    if bits == [32, 32, 32] and sample_format[:3] == [3, 3, 3]:
+        array = np.frombuffer(raw, dtype="<f4").reshape(height, width, 3)
+    elif bits == [8, 8, 8]:
+        array = np.frombuffer(raw, dtype=np.uint8).reshape(height, width, 3)
+    else:
+        raise ValueError(f"不支持的 TIFF 像素格式：bits={bits} format={sample_format}")
+    return np.array(array, copy=True)
+
+
 def to_tiff(exr_img, out_path):
-    exr_file = OpenEXR.InputFile(exr_img)
-    dw = exr_file.header()['dataWindow']
-    size = (dw.max.x - dw.min.x + 1, dw.max.y - dw.min.y + 1)
-
-    FLOAT = Imath.PixelType(Imath.PixelType.FLOAT)
-    r = np.frombuffer(exr_file.channel('R', FLOAT), dtype=np.float32).reshape(size[1], size[0])
-    g = np.frombuffer(exr_file.channel('G', FLOAT), dtype=np.float32).reshape(size[1], size[0])
-    b = np.frombuffer(exr_file.channel('B', FLOAT), dtype=np.float32).reshape(size[1], size[0])
-    img = np.stack([r, g, b], axis=-1)
-
-    imageio.imwrite(out_path, img)
+    write_float_tiff(out_path, bitmap_to_rgb(mi.Bitmap(exr_img)))
 
 
 def make_colorbar_pixmap(cmap, width=260, height=24):
@@ -198,6 +337,15 @@ xml_ball_segment = """
     </shape>
 """
 
+class RenderCancelled(Exception):
+    """用户在渲染完成前取消了任务。"""
+
+
+def _raise_if_cancelled(cancel_check):
+    if cancel_check is not None and cancel_check():
+        raise RenderCancelled()
+
+
 def generate_xml_tail(floor_z):
     return f"""
     <shape type="rectangle">
@@ -223,8 +371,12 @@ def generate_xml_tail(floor_z):
 def save_mistuba(points_txt, noise_points_txt=None, xml_filename="scene.xml",
                  ball_size=0.011, ball_size_noisy=0.004, camera_origin=(-3, -3, 3),
                  floor_z=-0.15, cmap=None, labels=None, label_colors=None,
-                 multiclass=False):
-    """将点云写入 Mitsuba XML 并渲染为 EXR。"""
+                 multiclass=False, cancel_check=None, run_render=None):
+    """将点云写入 Mitsuba XML 并渲染为 EXR。
+
+    cancel_check 返回 True 时中止。run_render(scene) 用于替换 mi.render，
+    以便在渲染过程中响应取消。
+    """
     if cmap is None:
         from matplotlib import cm
         cmap = cm.get_cmap('viridis')
@@ -247,7 +399,10 @@ def save_mistuba(points_txt, noise_points_txt=None, xml_filename="scene.xml",
         zmin, zmax = z.min(), z.max()
         feature = (z - zmin) / max(1e-12, (zmax - zmin))
 
-    for i in range(points_txt.shape[0]):
+    point_count = points_txt.shape[0]
+    for i in range(point_count):
+        if (i & 2047) == 0:
+            _raise_if_cancelled(cancel_check)
         if labels is not None:
             class_idx = label_map[labels[i]]
             color = palette[class_idx]
@@ -260,7 +415,10 @@ def save_mistuba(points_txt, noise_points_txt=None, xml_filename="scene.xml",
         ))
 
     if noise_points_txt is not None:
-        for i in range(noise_points_txt.shape[0]):
+        noise_count = noise_points_txt.shape[0]
+        for i in range(noise_count):
+            if (i & 2047) == 0:
+                _raise_if_cancelled(cancel_check)
             color = (0.7, 0.7, 0.7)
             xml_segments.append(xml_ball_segment.format(
                 ball_size_noisy,
@@ -268,15 +426,23 @@ def save_mistuba(points_txt, noise_points_txt=None, xml_filename="scene.xml",
                 color[0], color[1], color[2]
             ))
 
+    _raise_if_cancelled(cancel_check)
     xml_segments.append(generate_xml_tail(floor_z))
 
     with open(xml_filename, 'w') as f:
         f.write("".join(xml_segments))
 
-    # Mitsuba render
+    _raise_if_cancelled(cancel_check)
     scene = mi.load_file(xml_filename)
-    img = mi.render(scene)
-    mi.Bitmap(img).write(xml_filename.replace(".xml", ".exr"))
+    _raise_if_cancelled(cancel_check)
+    if run_render is None:
+        img = mi.render(scene)
+    else:
+        img = run_render(scene)
+    _raise_if_cancelled(cancel_check)
+    bitmap = mi.Bitmap(img)
+    bitmap.write(xml_filename.replace(".xml", ".exr"))
+    return bitmap_to_rgb(bitmap)
 
 
 # =======================================
@@ -382,10 +548,8 @@ def collect_mitsuba_search_paths():
 
 
 def apply_mitsuba_search_paths(paths):
-    try:
-        mi.Thread.register_external_thread("mistuba-render")
-    except Exception:
-        pass
+    # 不要调用 register_external_thread。在这个 CUDA 构建上，注册外部线程后再
+    # load_file 会直接访问冲突；后台线程里加载场景同样会崩溃。渲染必须留在进程主线程。
     thread = mi.Thread.thread()
     fr = mi.FileResolver()
     pkg = mitsuba_package_dir()
@@ -398,8 +562,9 @@ def apply_mitsuba_search_paths(paths):
     thread.set_file_resolver(fr)
 
 
-def execute_render_job(job, log):
+def execute_render_job(job, log, cancel_check=None, run_render=None):
     """在工作线程中执行单个渲染任务。log 为可调用对象。"""
+    _raise_if_cancelled(cancel_check)
     file_path = job["file_path"]
     log(f"📄 渲染文件：{file_path}")
     terrain, embedded_labels = load_pointcloud(
@@ -438,10 +603,11 @@ def execute_render_job(job, log):
             log(f"⚠️ 标签文件读取失败，将回退到渐变色轴：{e}")
             labels = None
 
+    _raise_if_cancelled(cancel_check)
     xml_path = job["xml_path"]
     exr_path = xml_path.replace(".xml", ".exr")
     tiff_path = xml_path.replace(".xml", ".tiff")
-    save_mistuba(
+    rgb = save_mistuba(
         terrain,
         noise,
         xml_path,
@@ -453,19 +619,15 @@ def execute_render_job(job, log):
         labels=labels,
         label_colors=job["label_colors"],
         multiclass=job["multiclass"],
+        cancel_check=cancel_check,
+        run_render=run_render,
     )
-    to_tiff(exr_path, tiff_path)
+    _raise_if_cancelled(cancel_check)
+    log("正在写入 TIFF...")
+    write_float_tiff(tiff_path, rgb)
     log(f"✅ 渲染完成：\n{xml_path}\n{exr_path}\n{tiff_path}")
 
-    preview_img = None
-    if job.get("preview"):
-        try:
-            img = imageio.imread(tiff_path)
-            if img.ndim == 2:
-                img = np.stack([img, img, img], axis=-1)
-            preview_img = img
-        except Exception as e:
-            log(f"⚠️ 预览载入失败：{e}")
+    preview_img = rgb if job.get("preview") else None
 
     return {
         "zmin": zmin,
@@ -475,49 +637,247 @@ def execute_render_job(job, log):
     }
 
 
+class SampledCmap:
+    """把色图采样成数组，方便传给独立渲染进程。"""
+
+    def __init__(self, samples):
+        self.samples = np.asarray(samples, dtype=np.float64)
+
+    def __call__(self, x):
+        samples = self.samples
+        last = samples.shape[0] - 1
+        if last <= 0:
+            color = samples[0]
+        else:
+            x = float(x)
+            if x < 0.0:
+                x = 0.0
+            elif x > 1.0:
+                x = 1.0
+            pos = x * last
+            index = int(pos)
+            if index >= last:
+                color = samples[-1]
+            else:
+                mix = pos - index
+                color = samples[index] * (1.0 - mix) + samples[index + 1] * mix
+        return (float(color[0]), float(color[1]), float(color[2]), 1.0)
+
+
+def pack_cmap(cmap, samples=256):
+    xs = np.linspace(0.0, 1.0, samples)
+    colors = np.stack([np.asarray(cmap(float(x))[:3], dtype=np.float64) for x in xs], axis=0)
+    return SampledCmap(colors)
+
+
+def _append_render_line(log_path, line):
+    with open(log_path, "a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def render_jobs_subprocess(jobs, variant, search_paths, log_path):
+    """在独立进程的主线程里渲染。
+
+    这个 Mitsuba CUDA 构建不是线程安全的：只要进程里还有别的线程，
+    load_file 就会访问冲突。所以这里不能再开线程或队列。
+    """
+    def emit(kind, text):
+        _append_render_line(log_path, kind + "\t" + text.replace("\n", "\n" + kind + "\t"))
+
+    try:
+        try:
+            mi.set_variant(variant)
+        except Exception:
+            mi.set_variant("scalar_rgb")
+        # 父进程传来的搜索路径指向它自己的解压目录，子进程不能用。
+        del search_paths
+        apply_mitsuba_search_paths(collect_mitsuba_search_paths())
+        total = len(jobs)
+        for i, job in enumerate(jobs, 1):
+            name = os.path.basename(job["file_path"])
+            emit("STATUS", f"正在渲染 {i}/{total}：{name}")
+            emit("LOG", f"—— [{i}/{total}] ——")
+            try:
+                result = execute_render_job(job, lambda message: emit("LOG", message))
+            except Exception as e:
+                emit("LOG", f"❌ 渲染失败：{job['file_path']} - {e}")
+                continue
+            emit("Z", f"{float(result['zmin'])}\t{float(result['zmax'])}")
+            if result["labels"] is not None:
+                label_path = f"{log_path}.labels{i}.npy"
+                np.save(label_path, result["labels"])
+                emit("LABELS", label_path)
+            if result["preview_img"] is not None:
+                emit("PREVIEW", job["xml_path"].replace(".xml", ".tiff"))
+    except Exception as e:
+        emit("LOG", f"❌ 渲染任务异常中止：{e}")
+    emit("DONE", "1")
+
+
+def run_render_job_cli(job_path, log_path):
+    with open(job_path, "rb") as handle:
+        payload = pickle.load(handle)
+    render_jobs_subprocess(
+        payload["jobs"],
+        payload["variant"],
+        payload["search_paths"],
+        log_path,
+    )
+
+
+def _render_process_command(job_path, log_path):
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--render-job", job_path, log_path]
+    return [sys.executable, os.path.abspath(__file__), "--render-job", job_path, log_path]
+
+
+def _render_subprocess_env():
+    """子进程不要继承父进程解压目录里的 DLL 路径。"""
+    env = os.environ.copy()
+    mei = getattr(sys, "_MEIPASS", None)
+    if not mei:
+        return env
+    root = os.path.normcase(os.path.abspath(mei))
+    kept = []
+    for part in env.get("PATH", "").split(os.pathsep):
+        if not part:
+            continue
+        try:
+            norm = os.path.normcase(os.path.abspath(part))
+        except Exception:
+            kept.append(part)
+            continue
+        if norm == root or norm.startswith(root + os.sep):
+            continue
+        kept.append(part)
+    env["PATH"] = os.pathsep.join(kept)
+    for key in list(env):
+        if key.startswith("_PYI") or key.startswith("_MEI"):
+            env.pop(key, None)
+    return env
+
+
 class RenderWorker(QObject):
     log_msg = pyqtSignal(str)
     status = pyqtSignal(str)
     z_range = pyqtSignal(float, float)
     labels_ready = pyqtSignal(object)
     preview_ready = pyqtSignal(object)
-    finished = pyqtSignal()
+    finished = pyqtSignal(bool)
 
     def __init__(self, jobs, variant, search_paths=None):
         super().__init__()
         self.jobs = jobs
         self.variant = variant
         self.search_paths = list(search_paths or [])
+        self._cancel_event = threading.Event()
+        self._proc = None
+
+    def request_cancel(self):
+        """结束独立渲染进程。CUDA 渲染不能从别的线程里安全打断。"""
+        self._cancel_event.set()
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+
+    def _handle_line(self, line):
+        if "\t" not in line:
+            return
+        kind, payload = line.split("\t", 1)
+        if kind == "LOG":
+            self.log_msg.emit(payload)
+        elif kind == "STATUS":
+            self.status.emit(payload)
+        elif kind == "Z":
+            zmin, zmax = payload.split("\t")
+            self.z_range.emit(float(zmin), float(zmax))
+        elif kind == "LABELS" and os.path.exists(payload):
+            self.labels_ready.emit(np.load(payload))
+        elif kind == "PREVIEW" and os.path.exists(payload):
+            self.preview_ready.emit(read_tiff(payload))
+
+    def _consume_log(self, log_path, offset, pending):
+        if not os.path.exists(log_path):
+            return offset, pending
+        with open(log_path, "r", encoding="utf-8") as handle:
+            handle.seek(offset)
+            chunk = handle.read()
+            offset = handle.tell()
+        if not chunk:
+            return offset, pending
+        pending += chunk
+        lines = pending.split("\n")
+        pending = lines.pop()
+        for line in lines:
+            if line:
+                self._handle_line(line)
+        return offset, pending
 
     def run(self):
+        cancelled = False
+        work_dir = tempfile.mkdtemp(prefix="mistuba-render-")
+        job_path = os.path.join(work_dir, "job.pkl")
+        log_path = os.path.join(work_dir, "log.txt")
+        with open(job_path, "wb") as handle:
+            pickle.dump(
+                {"jobs": self.jobs, "variant": self.variant, "search_paths": self.search_paths},
+                handle,
+            )
+        error_path = os.path.join(work_dir, "stderr.txt")
+        error_handle = open(error_path, "w", encoding="utf-8")
+        proc = subprocess.Popen(
+            _render_process_command(job_path, log_path),
+            stdout=error_handle,
+            stderr=subprocess.STDOUT,
+            env=_render_subprocess_env(),
+        )
+        self._proc = proc
+        offset = 0
+        pending = ""
         try:
-            try:
-                mi.Thread.register_external_thread("mistuba-render")
-            except Exception:
-                pass
-            try:
-                mi.set_variant(self.variant)
-            except Exception:
-                mi.set_variant("scalar_rgb")
-            apply_mitsuba_search_paths(self.search_paths or collect_mitsuba_search_paths())
-            total = len(self.jobs)
-            for i, job in enumerate(self.jobs, 1):
-                name = os.path.basename(job["file_path"])
-                self.status.emit(f"正在渲染 {i}/{total}：{name}")
-                self.log_msg.emit(f"—— [{i}/{total}] ——")
-                try:
-                    result = execute_render_job(job, self.log_msg.emit)
-                    self.z_range.emit(result["zmin"], result["zmax"])
-                    if result["labels"] is not None:
-                        self.labels_ready.emit(result["labels"])
-                    if result["preview_img"] is not None:
-                        self.preview_ready.emit(result["preview_img"])
-                except Exception as e:
-                    self.log_msg.emit(f"❌ 渲染失败：{job['file_path']} - {e}")
+            while True:
+                if self._cancel_event.is_set():
+                    cancelled = True
+                    if proc.poll() is None:
+                        proc.terminate()
+                    self.log_msg.emit("⏹️ 已取消，正在停止渲染进程。")
+                    break
+                offset, pending = self._consume_log(log_path, offset, pending)
+                if proc.poll() is not None:
+                    time.sleep(0.05)
+                    offset, pending = self._consume_log(log_path, offset, pending)
+                    if pending:
+                        self._handle_line(pending)
+                    if proc.returncode not in (0, None) and not cancelled:
+                        detail = ""
+                        error_handle.flush()
+                        if os.path.exists(error_path):
+                            with open(error_path, "r", encoding="utf-8", errors="replace") as handle:
+                                tail = handle.read()[-500:].strip()
+                            if tail:
+                                detail = "\n" + tail
+                        self.log_msg.emit(f"❌ 渲染进程异常退出（代码 {proc.returncode}）。{detail}")
+                    break
+                time.sleep(0.1)
         except Exception as e:
-            self.log_msg.emit(f"❌ 渲染任务异常中止：{e}")
+            if self._cancel_event.is_set():
+                cancelled = True
+                self.log_msg.emit("⏹️ 渲染已取消。")
+            else:
+                self.log_msg.emit(f"❌ 渲染任务异常中止：{e}")
         finally:
-            self.finished.emit()
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=5)
+            error_handle.close()
+            self._proc = None
+            self.finished.emit(cancelled)
 
 
 def rgb_to_hex(rgb):
@@ -831,7 +1191,10 @@ class RenderUI(QWidget):
         outer.addWidget(splitter)
 
         self._rendering = False
+        self._cancel_requested = False
+        self._quit_when_idle = False
         self._render_thread = None
+        self._render_worker = None
         self._loading_seconds = 0
         self._build_loading_overlay()
 
@@ -974,11 +1337,31 @@ class RenderUI(QWidget):
 
     def closeEvent(self, event):
         if self._rendering:
-            QMessageBox.information(self, "请稍候", "正在渲染，请等待完成后再关闭窗口。")
+            if not self._cancel_requested:
+                reply = QMessageBox.question(
+                    self,
+                    "正在渲染",
+                    "渲染尚未完成。要取消渲染并关闭窗口吗？",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if reply != QMessageBox.Yes:
+                    event.ignore()
+                    return
+                self._quit_when_idle = True
+                self.cancel_render()
+            else:
+                self._quit_when_idle = True
             event.ignore()
             return
         self.save_settings()
         super().closeEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape and self._rendering:
+            self.cancel_render()
+            return
+        super().keyPressEvent(event)
 
     # -------------------- 色轴相关 --------------------
 
@@ -1273,10 +1656,12 @@ class RenderUI(QWidget):
 
     def _build_loading_overlay(self):
         self.loading_overlay = QWidget(self)
+        self.loading_overlay.setObjectName("loadingOverlay")
         self.loading_overlay.setAttribute(Qt.WA_StyledBackground, True)
-        self.loading_overlay.setStyleSheet("background: rgba(20, 20, 20, 160);")
+        self.loading_overlay.setStyleSheet("#loadingOverlay { background: rgba(20, 20, 20, 160); }")
         box = QVBoxLayout(self.loading_overlay)
         box.setAlignment(Qt.AlignCenter)
+        box.setSpacing(12)
         self.loading_title = QLabel("正在渲染，请稍候…")
         self.loading_title.setAlignment(Qt.AlignCenter)
         self.loading_title.setStyleSheet("color: white; font-size: 18px; font-weight: bold; background: transparent;")
@@ -1287,9 +1672,22 @@ class RenderUI(QWidget):
         self.loading_bar.setRange(0, 0)
         self.loading_bar.setFixedWidth(280)
         self.loading_bar.setTextVisible(False)
+        self.btn_cancel_render = QPushButton("取消渲染")
+        self.btn_cancel_render.setFixedSize(160, 36)
+        self.btn_cancel_render.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel_render.setStyleSheet(
+            "QPushButton { background: #d9534f; color: white; font-weight: bold; border: none; border-radius: 4px; }"
+            "QPushButton:hover { background: #c9302c; }"
+            "QPushButton:disabled { background: #777777; color: #eeeeee; }"
+        )
+        self.btn_cancel_render.clicked.connect(self.cancel_render)
+        self._cancel_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
+        self._cancel_shortcut.setContext(Qt.WindowShortcut)
+        self._cancel_shortcut.activated.connect(self.cancel_render)
         box.addWidget(self.loading_title)
         box.addWidget(self.loading_status)
         box.addWidget(self.loading_bar, 0, Qt.AlignCenter)
+        box.addWidget(self.btn_cancel_render, 0, Qt.AlignCenter)
         self.loading_overlay.hide()
         self._loading_timer = QTimer(self)
         self._loading_timer.setInterval(1000)
@@ -1302,6 +1700,8 @@ class RenderUI(QWidget):
             overlay.raise_()
 
     def _tick_loading(self):
+        if self._cancel_requested:
+            return
         self._loading_seconds += 1
         self.loading_title.setText(f"正在渲染，请稍候… 已用时 {self._loading_seconds} 秒")
 
@@ -1309,20 +1709,35 @@ class RenderUI(QWidget):
         self._sync_loading_overlay()
         if on:
             self._loading_seconds = 0
+            self._cancel_requested = False
             self.loading_title.setText("正在渲染，请稍候…")
             self.loading_status.setText(status)
+            self.btn_cancel_render.setEnabled(True)
+            self.btn_cancel_render.setText("取消渲染")
             self.loading_overlay.show()
             self.loading_overlay.raise_()
             self._loading_timer.start()
             self.btn_start.setEnabled(False)
             self.btn_reload_preview.setEnabled(False)
-            QApplication.setOverrideCursor(Qt.WaitCursor)
         else:
             self._loading_timer.stop()
             self.loading_overlay.hide()
             self.btn_start.setEnabled(True)
             self.btn_reload_preview.setEnabled(True)
-            QApplication.restoreOverrideCursor()
+
+    def cancel_render(self):
+        if not self._rendering or self._cancel_requested:
+            return
+        worker = self._render_worker
+        if worker is None:
+            return
+        self._cancel_requested = True
+        self.btn_cancel_render.setEnabled(False)
+        self.btn_cancel_render.setText("正在取消…")
+        self.loading_title.setText("正在取消渲染，请稍候…")
+        self.loading_status.setText("正在停止当前任务")
+        self.log.append("⏹️ 已请求取消渲染")
+        worker.request_cancel()
 
     def _snapshot_render_job(self, file_path, preview=False, noise_path=None):
         return {
@@ -1337,7 +1752,7 @@ class RenderUI(QWidget):
             "noise_ball_size": self.noise_ball_size_box.value(),
             "camera_origin": (self.cam_x.value(), self.cam_y.value(), self.cam_z.value()),
             "floor_z": self.floor_z_box.value(),
-            "cmap": self.cmap,
+            "cmap": pack_cmap(self.cmap),
             "label_colors": list(self.label_colors),
             "xml_path": self.get_output_xml_path(file_path),
         }
@@ -1361,8 +1776,8 @@ class RenderUI(QWidget):
         worker.status.connect(self.loading_status.setText)
         worker.z_range.connect(self.set_z_minmax_labels)
         worker.labels_ready.connect(self.remember_label_classes)
-        worker.preview_ready.connect(lambda img: self.show_image_on_label(img, self.render_preview))
-        worker.finished.connect(lambda: self._on_render_finished(done_message))
+        worker.preview_ready.connect(self._on_preview_ready)
+        worker.finished.connect(self._on_render_finished)
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
@@ -1370,17 +1785,27 @@ class RenderUI(QWidget):
         self._render_worker = worker
         thread.start()
 
-    def _on_render_finished(self, done_message):
+    def _on_preview_ready(self, img):
+        self.show_image_on_label(img, self.render_preview)
+
+    def _on_render_finished(self, cancelled=False):
+        done_message = self._render_done_message
         self._rendering = False
+        self._cancel_requested = False
         self._set_loading(False)
-        if done_message:
+        if cancelled:
+            self.log.append("⏹️ 渲染已取消。未完成的图像不会保存。")
+        elif done_message:
             self.log.append(done_message)
         self._render_thread = None
         self._render_worker = None
+        if self._quit_when_idle:
+            self._quit_when_idle = False
+            QTimer.singleShot(0, self.close)
 
     def render_scene(self):
         if self._rendering:
-            QMessageBox.information(self, "请稍候", "当前正在渲染，请等待完成。")
+            QMessageBox.information(self, "请稍候", "当前正在渲染。如需停止，请点击“取消渲染”或按 Esc。")
             return
 
         jobs = []
@@ -1438,7 +1863,7 @@ class RenderUI(QWidget):
 
     def reload_tiff_preview(self):
         if self._rendering:
-            QMessageBox.information(self, "请稍候", "正在渲染，请等待完成后再载入预览。")
+            QMessageBox.information(self, "请稍候", "正在渲染。请等待完成，或先取消当前渲染。")
             return
         if not self.terrain_file:
             QMessageBox.information(self, "提示", "请先在单文件模式下选择点云并完成一次渲染。")
@@ -1448,10 +1873,7 @@ class RenderUI(QWidget):
             QMessageBox.information(self, "提示", "未找到TIFF文件，请先渲染或确认路径。")
             return
         try:
-            img = imageio.imread(tiff_path)
-            if img.ndim == 2:
-                img = np.stack([img, img, img], axis=-1)
-            self.show_image_on_label(img, self.render_preview)
+            self.show_image_on_label(read_tiff(tiff_path), self.render_preview)
             self.log.append("🔄 已从TIFF重新载入预览")
         except Exception as e:
             self.log.append(f"⚠️ 预览载入失败：{e}")
@@ -1462,6 +1884,9 @@ class RenderUI(QWidget):
 # =======================================
 
 if __name__ == "__main__":
+    if len(sys.argv) >= 4 and sys.argv[1] == "--render-job":
+        run_render_job_cli(sys.argv[2], sys.argv[3])
+        raise SystemExit(0)
     app = QApplication(sys.argv)
     ui = RenderUI()
     ui.show()

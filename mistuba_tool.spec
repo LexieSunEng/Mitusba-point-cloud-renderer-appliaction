@@ -1,5 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs
 
 # Dr.Jit's native extension does ``import drjit.llvm`` (and cuda/scalar) from C++
@@ -36,17 +38,44 @@ hiddenimports = list(dict.fromkeys(
         'mitsuba.config',
         'mitsuba.mitsuba_ext',
         'mitsuba.mitsuba_alias',
+        'mitsuba.mitsuba_scalar_rgb_ext',
+        'mitsuba.mitsuba_cuda_ad_rgb_ext',
+        'mitsuba.mitsuba_llvm_ad_rgb_ext',
+        'mitsuba.mitsuba_scalar_spectral_ext',
         'mitsuba.python',
         'mitsuba.python.util',
-        'mitsuba.scalar_rgb',
-        'mitsuba.cuda_ad_rgb',
-        'mitsuba.llvm_ad_rgb',
         'Imath',
     ]
 ))
 
-datas = drjit_datas + mitsuba_datas
-binaries = drjit_binaries + mitsuba_binaries
+# Variant modules are loaded by name at runtime (mitsuba.mitsuba_<variant>_ext).
+# PyInstaller does not see that import, so add the extension binaries directly.
+import importlib.util
+_mitsuba_root = os.path.dirname(importlib.util.find_spec('mitsuba').origin)
+_mitsuba_exts = [
+    (os.path.join(_mitsuba_root, name), 'mitsuba')
+    for name in os.listdir(_mitsuba_root)
+    if name.endswith('.pyd')
+]
+
+def _setuptools_backports_datas():
+    """pkg_resources on Python 3.8 imports ``backports.tarfile`` from setuptools/_vendor."""
+    vendor = os.path.join(os.path.dirname(importlib.util.find_spec('setuptools').origin), '_vendor', 'backports')
+    items = []
+    for dirpath, _, filenames in os.walk(vendor):
+        for filename in filenames:
+            if not filename.endswith('.py'):
+                continue
+            rel_dir = os.path.relpath(dirpath, vendor)
+            dest = os.path.join('setuptools', '_vendor', 'backports')
+            if rel_dir != '.':
+                dest = os.path.join(dest, rel_dir)
+            items.append((os.path.join(dirpath, filename), dest))
+    return items
+
+
+datas = drjit_datas + mitsuba_datas + _setuptools_backports_datas()
+binaries = drjit_binaries + mitsuba_binaries + _mitsuba_exts
 
 a = Analysis(
     ['mistuba_tool.py'],
@@ -57,7 +86,15 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=['hooks/pyi_rth_native_dlls.py'],
-    excludes=['mitsuba.mitsuba_stubs'],
+    excludes=[
+        'mitsuba.mitsuba_stubs',
+        # This environment also contains training libraries. The renderer does not import them.
+        'torch',
+        'torchvision',
+        'torchaudio',
+        'ultralytics',
+        'tensorboard',
+    ],
     noarchive=False,
     optimize=0,
 )
@@ -82,5 +119,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['E:\\Windshear_packed_new\\utils\\myinstaller\\myicon.ico'],
+    icon=[r'E:\Windshear_packed_new\utils\myinstaller\myicon.ico'] if os.path.isfile(r'E:\Windshear_packed_new\utils\myinstaller\myicon.ico') else None,
 )
