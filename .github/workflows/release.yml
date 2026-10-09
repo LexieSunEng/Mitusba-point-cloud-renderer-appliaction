@@ -1,0 +1,81 @@
+# 推送版本标签后自动打包 Windows exe，并创建 GitHub Release。
+# 触发标签示例：v2.0.0、tag_v2.0.0、tag_2.0.0
+# 也可在 Actions 页手动运行，手动运行只上传构建产物，不发版。
+
+name: Release Windows EXE
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "tag_*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build executable
+        run: pyinstaller --clean --noconfirm mistuba_tool.spec
+
+      - name: Name release asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            ver="${GITHUB_REF_NAME}"
+            ver="${ver#tag_v}"
+            ver="${ver#tag_}"
+            ver="${ver#v}"
+          else
+            ver="ci-${GITHUB_SHA::7}"
+          fi
+          name="mistuba_tool-${ver}.exe"
+          cp "dist/mistuba_tool.exe" "dist/${name}"
+          echo "ASSET_NAME=${name}" >> "${GITHUB_ENV}"
+          echo "ASSET_PATH=dist/${name}" >> "${GITHUB_ENV}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET_NAME }}
+          path: ${{ env.ASSET_PATH }}
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          asset="${ASSET_PATH}"
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release upload "${tag}" "${asset}" --clobber
+          else
+            gh release create "${tag}" "${asset}" \
+              --title "${tag}" \
+              --generate-notes \
+              --latest
+          fi
