@@ -19,6 +19,330 @@ from PyQt5.QtGui import QPixmap, QImage, QColor, QKeySequence
 from PyQt5.QtCore import Qt, QSettings, QThread, QObject, QTimer, pyqtSignal
 
 
+_UI_LANG = "zh"
+CUSTOM_CMAP_TOKEN = "(自定义txt)"
+
+_UI_TEXT = {
+    "zh": {
+        "lang_tip": "切换为英文界面",
+        "cloud_group": "1. 点云",
+        "btn_file": "选择文件",
+        "btn_folder": "选择文件夹",
+        "batch_check": "批量渲染文件夹内全部 .txt",
+        "file_none": "单文件：未选择",
+        "folder_none": "文件夹：未选择",
+        "file_selected": "单文件：{path}",
+        "folder_selected": "文件夹：{path}",
+        "label_group": "2. 标签",
+        "labels_in_cloud": "点云含标签",
+        "labels_in_cloud_tip": "打开后从点云文件指定列读取标签（单文件和批量都生效）。XYZ 仍使用前三列。",
+        "col": "列",
+        "col_tip": "点云文件中标签所在列，从 1 开始计数，默认第 4 列。批量时文件夹内所有文件使用同一列。",
+        "multiclass": "多分类",
+        "multiclass_tip": "打开后允许 2 个以上类别，颜色按当前色轴自动分配；关闭则仅支持二分类，使用手动配色。",
+        "btn_label_file": "选择单独标签文件",
+        "btn_clear": "清除",
+        "label_none": "未选择",
+        "label_embedded": "每个点云文件都使用第 {col} 列作为标签",
+        "noise_group": "3. 噪声（可选）",
+        "noise_dir_tip": "批量时噪声文件名必须与干净点云相同，例如 clean/a.txt 对应 noise/a.txt",
+        "noise_file": "单文件：{path}",
+        "noise_batch": "批量文件夹：{path}（文件名需与干净点云相同）",
+        "list_sep": "；",
+        "param_group": "4. 渲染参数",
+        "ball_radius": "主点球半径",
+        "noise_radius": "噪声球半径",
+        "floor_z": "底板高度 z",
+        "camera_origin": "相机 origin",
+        "color_group": "5. 着色",
+        "colormap": "色轴",
+        "cmap_custom": "(自定义txt)",
+        "btn_load_cmap": "载入 txt",
+        "cmap_custom_current": "当前：自定义 {name}",
+        "cmap_custom_empty": "当前：自定义（尚未载入）",
+        "cmap_builtin": "当前：内置 {name}",
+        "caption_gradient": "渐变色轴预览（无标签时使用）",
+        "caption_multi_n": "多分类色轴预览（{n} 类，按当前色轴自动分配）",
+        "caption_multi_empty": "多分类色轴预览（载入标签后按当前色轴自动分配）",
+        "class0": "类别 0",
+        "class1": "类别 1",
+        "output_group": "6. 输出",
+        "btn_xml": "指定 XML 路径",
+        "btn_auto": "恢复自动",
+        "output_manual": "手动：{path}",
+        "output_auto": "自动：{path}",
+        "output_default": "单文件模式将自动在点云同目录生成 XML",
+        "btn_start": "开始渲染",
+        "btn_reload": "从 TIFF 载入预览",
+        "preview_group": "预览",
+        "preview_placeholder": "渲染结果将显示在这里",
+        "log_group": "日志",
+        "zmin": "zmin: {value}",
+        "zmax": "zmax: {value}",
+        "zmin_empty": "zmin: -",
+        "zmax_empty": "zmax: -",
+        "dlg_wait": "请稍候",
+        "dlg_error": "错误",
+        "dlg_info": "提示",
+        "dlg_rendering": "正在渲染",
+        "dlg_yes": "是",
+        "dlg_no": "否",
+        "close_prompt": "渲染尚未完成。要取消渲染并关闭窗口吗？",
+        "cmap_fail": "色轴载入失败",
+        "choose_cmap": "选择自定义色轴 txt",
+        "choose_class_color": "选择类别 {index} 颜色",
+        "choose_cloud": "选择点云文件",
+        "choose_cloud_dir": "选择点云文件夹",
+        "choose_noise": "选择噪声点云文件",
+        "choose_noise_dir": "选择噪声点云文件夹",
+        "choose_label": "选择标签文件",
+        "choose_xml": "选择输出 XML 路径",
+        "filter_txt": "TXT 文件 (*.txt)",
+        "filter_label": "TXT 文件 (*.txt);;CSV 文件 (*.csv);;所有文件 (*)",
+        "filter_xml": "XML 文件 (*.xml)",
+        "rendering_wait": "正在渲染，请稍候…",
+        "rendering_elapsed": "正在渲染，请稍候… 已用时 {seconds} 秒",
+        "preparing": "准备中",
+        "queue_status": "队列中共 {n} 个任务",
+        "cancel_render": "取消渲染",
+        "cancelling": "正在取消…",
+        "cancelling_title": "正在取消渲染，请稍候…",
+        "stopping": "正在停止当前任务",
+        "cancel_requested": "⏹️ 已请求取消渲染",
+        "render_cancelled": "⏹️ 渲染已取消。未完成的图像不会保存。",
+        "busy_stop": "当前正在渲染。如需停止，请点击“取消渲染”或按 Esc。",
+        "need_folder": "请先选择点云文件夹，或取消批量模式。",
+        "need_file": "请先选择点云文件（或启用批量并选择文件夹）。",
+        "no_txt": "该文件夹下未找到 .txt 点云文件。",
+        "reload_busy": "正在渲染。请等待完成，或先取消当前渲染。",
+        "reload_need_file": "请先在单文件模式下选择点云并完成一次渲染。",
+        "reload_missing": "未找到 TIFF 文件，请先渲染或确认路径。",
+        "reload_ok": "🔄 已从 TIFF 重新载入预览",
+        "reload_fail": "⚠️ 预览载入失败：{error}",
+        "variant_fail": "⚠️ 设置 Mitsuba 变体失败：{error}\n将尝试使用 'scalar_rgb'",
+        "variant_fail2": "⚠️ 备用变体设置仍失败：{error}",
+        "batch_noise_hint": "批量噪声将按文件名与干净点云一一对应，例如 clean/a.txt 对应 noise/a.txt",
+        "noise_cleared": "已取消噪声点云文件/文件夹",
+        "label_cleared": "已取消标签文件",
+        "output_reset": "已取消手动输出路径，恢复为自动生成",
+        "read_cloud_fail": "⚠️ 读取点云失败，无法更新 z 范围：{error}",
+        "label_read_fail": "⚠️ 标签文件读取失败：{error}",
+        "label_reload_fail": "⚠️ 按当前标签设置重新读取失败：{error}",
+        "cmap_loaded": "🎨 已载入自定义色轴：{path}",
+        "color_updated": "🎨 已更新类别 {index} 配色：{hex}",
+        "mode_multi": "多分类",
+        "mode_binary": "二分类",
+        "batch_labels": "🏷️ 批量模式将从每个点云文件的第 {col} 列读取{mode}标签。",
+        "batch_ignore_label": "⚠️ 当前批量模式会忽略单个标签文件，请勾选“点云含标签”并指定标签列。",
+        "batch_noise_dir": "🌫️ 批量噪声文件夹：{path}。噪声文件名必须与对应干净点云相同。",
+        "batch_ignore_noise": "⚠️ 批量模式不会使用单个噪声文件，请选择噪声文件夹，并保证文件名与干净点云一一对应。",
+        "batch_list": "📁 将批量渲染 {n} 个文件：",
+        "noise_missing": "⚠️ 未找到与 {name} 对应的噪声文件（文件名需相同），本文件不叠加噪声。",
+        "batch_start": "开始批量渲染...",
+        "batch_done": "🎉 批量渲染完成！如需查看单个结果，请切换到单文件模式并载入 TIFF 预览。",
+        "single_start": "开始渲染（单文件）...",
+        "single_done": "🎉 单文件渲染完成。",
+        "rendering_file": "📄 渲染文件：{path}",
+        "noise_added": "🌫️ 已叠加噪声：{path}",
+        "noise_fail": "⚠️ 噪声点云读取失败：{error}",
+        "labels_from_col": "🏷️ 已从点云第 {col} 列读取标签（{n} 类）",
+        "labels_from_file": "🏷️ 已载入标签文件：{path}（{n} 类）",
+        "labels_fallback": "⚠️ 标签文件读取失败，将回退到渐变色轴：{error}",
+        "writing_tiff": "正在写入 TIFF...",
+        "render_done_files": "✅ 渲染完成：\n{xml}\n{exr}\n{tiff}",
+        "status_rendering": "正在渲染 {i}/{total}：{name}",
+        "render_fail": "❌ 渲染失败：{path} - {error}",
+        "render_abort": "❌ 渲染任务异常中止：{error}",
+        "proc_cancel": "⏹️ 已取消，正在停止渲染进程。",
+        "proc_crash": "❌ 渲染进程异常退出（代码 {code}）。{detail}",
+        "proc_cancelled": "⏹️ 渲染已取消。",
+        "proc_abort": "❌ 渲染任务异常中止：{error}",
+        "err_empty_labels": "标签为空。",
+        "err_binary": "当前为二分类模式，检测到 {n} 个类别。请勾选“多分类标签”。",
+        "err_empty_cloud": "点云文件为空。",
+        "err_need_xyz": "点云至少需要 x y z 三列。",
+        "err_col_start": "标签列必须从 1 开始计数。",
+        "err_col_missing": "已勾选“点云含标签”，但文件只有 {ncols} 列，无法读取第 {col} 列。",
+        "err_count_mismatch": "标签数 {nlabels} 与点数 {npoints} 不一致。",
+        "err_cmap_rows": "自定义色轴文件至少需要两行 RGB。",
+        "err_label_mismatch": "标签数量与点云点数不一致。",
+        "err_tiff_shape": "无法识别的图像形状：{shape}",
+        "err_tiff_hw": "TIFF 需要 H×W×3 图像",
+        "err_tiff_type": "不支持的 TIFF 字段类型：{typ}",
+        "err_tiff_endian": "只支持小端未压缩 TIFF",
+        "err_tiff_tag": "TIFF 缺少字段 {tag}",
+        "err_tiff_compress": "只支持未压缩、逐像素排列的 TIFF",
+        "err_tiff_strip": "只支持单条带 TIFF",
+        "err_tiff_format": "不支持的 TIFF 像素格式：bits={bits} format={sample_format}",
+    },
+    "en": {
+        "lang_tip": "Switch to Chinese",
+        "cloud_group": "1. Point cloud",
+        "btn_file": "Choose file",
+        "btn_folder": "Choose folder",
+        "batch_check": "Batch-render every .txt in the folder",
+        "file_none": "File: none",
+        "folder_none": "Folder: none",
+        "file_selected": "File: {path}",
+        "folder_selected": "Folder: {path}",
+        "label_group": "2. Labels",
+        "labels_in_cloud": "Labels in point cloud",
+        "labels_in_cloud_tip": "Read labels from a chosen column. XYZ stays in the first three columns. Applies to single files and batches.",
+        "col": "Column",
+        "col_tip": "Label column, counted from 1. Default is column 4. Batch mode uses the same column for every file.",
+        "multiclass": "Multiclass",
+        "multiclass_tip": "Allow more than two classes and assign colors from the current colormap. Off: binary labels only, using the manual colors.",
+        "btn_label_file": "Choose label file",
+        "btn_clear": "Clear",
+        "label_none": "None",
+        "label_embedded": "Every file uses column {col} as labels",
+        "noise_group": "3. Noise (optional)",
+        "noise_dir_tip": "In batch mode the noise file name must match the clean cloud, for example clean/a.txt and noise/a.txt.",
+        "noise_file": "File: {path}",
+        "noise_batch": "Batch folder: {path} (file names must match the clean clouds)",
+        "list_sep": "; ",
+        "param_group": "4. Render settings",
+        "ball_radius": "Sphere radius",
+        "noise_radius": "Noise radius",
+        "floor_z": "Floor height z",
+        "camera_origin": "Camera origin",
+        "color_group": "5. Color",
+        "colormap": "Colormap",
+        "cmap_custom": "Custom txt",
+        "btn_load_cmap": "Load txt",
+        "cmap_custom_current": "Current: custom {name}",
+        "cmap_custom_empty": "Current: custom (not loaded)",
+        "cmap_builtin": "Current: built-in {name}",
+        "caption_gradient": "Colormap preview (used when there are no labels)",
+        "caption_multi_n": "Multiclass preview ({n} classes, assigned from the current colormap)",
+        "caption_multi_empty": "Multiclass preview (assigned from the current colormap after labels load)",
+        "class0": "Class 0",
+        "class1": "Class 1",
+        "output_group": "6. Output",
+        "btn_xml": "Set XML path",
+        "btn_auto": "Use automatic",
+        "output_manual": "Manual: {path}",
+        "output_auto": "Automatic: {path}",
+        "output_default": "XML is created next to the point cloud (single-file mode)",
+        "btn_start": "Start render",
+        "btn_reload": "Load preview from TIFF",
+        "preview_group": "Preview",
+        "preview_placeholder": "The render will appear here",
+        "log_group": "Log",
+        "zmin": "zmin: {value}",
+        "zmax": "zmax: {value}",
+        "zmin_empty": "zmin: -",
+        "zmax_empty": "zmax: -",
+        "dlg_wait": "Please wait",
+        "dlg_error": "Error",
+        "dlg_info": "Notice",
+        "dlg_rendering": "Rendering",
+        "dlg_yes": "Yes",
+        "dlg_no": "No",
+        "close_prompt": "The render is still running. Cancel it and close the window?",
+        "cmap_fail": "Could not load colormap",
+        "choose_cmap": "Choose custom colormap txt",
+        "choose_class_color": "Choose color for class {index}",
+        "choose_cloud": "Choose point cloud",
+        "choose_cloud_dir": "Choose point cloud folder",
+        "choose_noise": "Choose noise point cloud",
+        "choose_noise_dir": "Choose noise folder",
+        "choose_label": "Choose label file",
+        "choose_xml": "Choose output XML path",
+        "filter_txt": "TXT files (*.txt)",
+        "filter_label": "TXT files (*.txt);;CSV files (*.csv);;All files (*)",
+        "filter_xml": "XML files (*.xml)",
+        "rendering_wait": "Rendering, please wait…",
+        "rendering_elapsed": "Rendering, please wait… {seconds} s elapsed",
+        "preparing": "Preparing",
+        "queue_status": "{n} job(s) in the queue",
+        "cancel_render": "Cancel render",
+        "cancelling": "Cancelling…",
+        "cancelling_title": "Cancelling the render, please wait…",
+        "stopping": "Stopping the current job",
+        "cancel_requested": "⏹️ Cancel requested",
+        "render_cancelled": "⏹️ Render cancelled. Unfinished images were not saved.",
+        "busy_stop": "A render is already running. Click Cancel render or press Esc to stop it.",
+        "need_folder": "Choose a point cloud folder, or turn off batch mode.",
+        "need_file": "Choose a point cloud file, or turn on batch mode and choose a folder.",
+        "no_txt": "No .txt point clouds were found in that folder.",
+        "reload_busy": "A render is running. Wait for it to finish, or cancel it first.",
+        "reload_need_file": "In single-file mode, choose a point cloud and finish one render first.",
+        "reload_missing": "TIFF not found. Render first, or check the path.",
+        "reload_ok": "🔄 Preview reloaded from TIFF",
+        "reload_fail": "⚠️ Could not load preview: {error}",
+        "variant_fail": "⚠️ Could not set the Mitsuba variant: {error}\nFalling back to 'scalar_rgb'.",
+        "variant_fail2": "⚠️ Fallback variant also failed: {error}",
+        "batch_noise_hint": "Batch noise files are matched by name, for example clean/a.txt with noise/a.txt.",
+        "noise_cleared": "Noise file and folder cleared.",
+        "label_cleared": "Label file cleared.",
+        "output_reset": "Manual output path cleared. XML paths are automatic again.",
+        "read_cloud_fail": "⚠️ Could not read the point cloud, so the z range was not updated: {error}",
+        "label_read_fail": "⚠️ Could not read the label file: {error}",
+        "label_reload_fail": "⚠️ Could not reread labels with the current settings: {error}",
+        "cmap_loaded": "🎨 Loaded custom colormap: {path}",
+        "color_updated": "🎨 Updated class {index} color: {hex}",
+        "mode_multi": "multiclass",
+        "mode_binary": "binary",
+        "batch_labels": "🏷️ Batch mode reads {mode} labels from column {col} of every file.",
+        "batch_ignore_label": "⚠️ Batch mode ignores a single label file. Enable “Labels in point cloud” and set the column.",
+        "batch_noise_dir": "🌫️ Batch noise folder: {path}. Noise file names must match the clean clouds.",
+        "batch_ignore_noise": "⚠️ Batch mode does not use a single noise file. Choose a noise folder whose file names match the clean clouds.",
+        "batch_list": "📁 Batch render of {n} files:",
+        "noise_missing": "⚠️ No noise file matches {name} (names must match). This file will render without noise.",
+        "batch_start": "Starting batch render...",
+        "batch_done": "🎉 Batch render finished. To view one result, switch to single-file mode and load the TIFF preview.",
+        "single_start": "Starting render (single file)...",
+        "single_done": "🎉 Single-file render finished.",
+        "rendering_file": "📄 Rendering file: {path}",
+        "noise_added": "🌫️ Noise added: {path}",
+        "noise_fail": "⚠️ Could not read noise: {error}",
+        "labels_from_col": "🏷️ Labels read from column {col} ({n} classes)",
+        "labels_from_file": "🏷️ Label file loaded: {path} ({n} classes)",
+        "labels_fallback": "⚠️ Could not read the label file. Falling back to the colormap: {error}",
+        "writing_tiff": "Writing TIFF...",
+        "render_done_files": "✅ Render finished:\n{xml}\n{exr}\n{tiff}",
+        "status_rendering": "Rendering {i}/{total}: {name}",
+        "render_fail": "❌ Render failed: {path} - {error}",
+        "render_abort": "❌ Render stopped: {error}",
+        "proc_cancel": "⏹️ Cancelled. Stopping the render process.",
+        "proc_crash": "❌ Render process exited unexpectedly (code {code}).{detail}",
+        "proc_cancelled": "⏹️ Render cancelled.",
+        "proc_abort": "❌ Render task stopped: {error}",
+        "err_empty_labels": "Labels are empty.",
+        "err_binary": "Binary mode found {n} classes. Enable “Multiclass”.",
+        "err_empty_cloud": "The point cloud file is empty.",
+        "err_need_xyz": "The point cloud needs at least x, y, and z columns.",
+        "err_col_start": "The label column is counted from 1.",
+        "err_col_missing": "“Labels in point cloud” is on, but the file has only {ncols} columns, so column {col} cannot be read.",
+        "err_count_mismatch": "Label count {nlabels} does not match point count {npoints}.",
+        "err_cmap_rows": "A custom colormap needs at least two RGB rows.",
+        "err_label_mismatch": "The number of labels does not match the number of points.",
+        "err_tiff_shape": "Unrecognized image shape: {shape}",
+        "err_tiff_hw": "TIFF needs an H×W×3 image",
+        "err_tiff_type": "Unsupported TIFF field type: {typ}",
+        "err_tiff_endian": "Only little-endian uncompressed TIFF is supported",
+        "err_tiff_tag": "TIFF is missing field {tag}",
+        "err_tiff_compress": "Only uncompressed chunky TIFF is supported",
+        "err_tiff_strip": "Only single-strip TIFF is supported",
+        "err_tiff_format": "Unsupported TIFF pixel format: bits={bits} format={sample_format}",
+    },
+}
+
+
+def set_ui_lang(lang):
+    global _UI_LANG
+    _UI_LANG = "en" if lang == "en" else "zh"
+
+
+def tr(key, **kwargs):
+    table = _UI_TEXT.get(_UI_LANG, _UI_TEXT["zh"])
+    text = table.get(key)
+    if text is None:
+        text = _UI_TEXT["zh"].get(key, key)
+    return text.format(**kwargs) if kwargs else text
+
+
 # =======================================
 # 原始渲染与工具函数
 # =======================================
@@ -85,7 +409,7 @@ def bitmap_to_rgb(bitmap):
     if array.shape[-1] == 1:
         array = np.repeat(array, 3, axis=2)
     if array.ndim != 3 or array.shape[2] != 3:
-        raise ValueError(f"无法识别的图像形状：{array.shape}")
+        raise ValueError(tr("err_tiff_shape", shape=array.shape))
     return np.ascontiguousarray(array, dtype=np.float32)
 
 
@@ -105,7 +429,7 @@ def write_float_tiff(path, rgb):
     """
     rgb = np.ascontiguousarray(rgb, dtype="<f4")
     if rgb.ndim != 3 or rgb.shape[2] != 3:
-        raise ValueError("TIFF 需要 H×W×3 图像")
+        raise ValueError(tr("err_tiff_hw"))
     height, width, _ = rgb.shape
     data = rgb.tobytes()
 
@@ -171,7 +495,7 @@ def _tiff_values(blob, typ, count, raw):
             int.from_bytes(blob[offset + 4 * i:offset + 4 * i + 4], "little")
             for i in range(count)
         ]
-    raise ValueError(f"不支持的 TIFF 字段类型：{typ}")
+    raise ValueError(tr("err_tiff_type", typ=typ))
 
 
 def read_tiff(path):
@@ -179,7 +503,7 @@ def read_tiff(path):
     with open(path, "rb") as handle:
         blob = handle.read()
     if len(blob) < 8 or blob[:2] != b"II" or int.from_bytes(blob[2:4], "little") != 42:
-        raise ValueError("只支持小端未压缩 TIFF")
+        raise ValueError(tr("err_tiff_endian"))
     offset = int.from_bytes(blob[4:8], "little")
     count = int.from_bytes(blob[offset:offset + 2], "little")
     tags = {}
@@ -194,7 +518,7 @@ def read_tiff(path):
     def values(tag, default=None):
         if tag not in tags:
             if default is None:
-                raise ValueError(f"TIFF 缺少字段 {tag}")
+                raise ValueError(tr("err_tiff_tag", tag=tag))
             return default
         typ, number, raw = tags[tag]
         return _tiff_values(blob, typ, number, raw)
@@ -203,13 +527,13 @@ def read_tiff(path):
     height = values(257)[0]
     bits = values(258)
     if values(259)[0] != 1 or values(284, [1])[0] != 1:
-        raise ValueError("只支持未压缩、逐像素排列的 TIFF")
+        raise ValueError(tr("err_tiff_compress"))
     samples = values(277, [1])[0]
     sample_format = values(339, [1] * samples)
     strips = values(273)
     counts = values(279)
     if len(strips) != 1 or len(counts) != 1:
-        raise ValueError("只支持单条带 TIFF")
+        raise ValueError(tr("err_tiff_strip"))
     start = strips[0]
     raw = blob[start:start + counts[0]]
     if bits == [32, 32, 32] and sample_format[:3] == [3, 3, 3]:
@@ -217,7 +541,7 @@ def read_tiff(path):
     elif bits == [8, 8, 8]:
         array = np.frombuffer(raw, dtype=np.uint8).reshape(height, width, 3)
     else:
-        raise ValueError(f"不支持的 TIFF 像素格式：bits={bits} format={sample_format}")
+        raise ValueError(tr("err_tiff_format", bits=bits, sample_format=sample_format))
     return np.array(array, copy=True)
 
 
@@ -237,9 +561,9 @@ def class_color_palette(labels, cmap, binary_colors=None, multiclass=False):
     sorted_vals = sorted(unique_values.tolist())
     n = len(sorted_vals)
     if n == 0:
-        raise ValueError("标签为空。")
+        raise ValueError(tr("err_empty_labels"))
     if not multiclass and n > 2:
-        raise ValueError(f"当前为二分类模式，检测到 {n} 个类别。请勾选“多分类标签”。")
+        raise ValueError(tr("err_binary", n=n))
 
     if multiclass:
         if n == 1:
@@ -389,7 +713,7 @@ def save_mistuba(points_txt, noise_points_txt=None, xml_filename="scene.xml",
     if labels is not None:
         labels = np.asarray(labels).reshape(-1)
         if labels.shape[0] != points_txt.shape[0]:
-            raise ValueError("标签数量与点云点数不一致。")
+            raise ValueError(tr("err_label_mismatch"))
         label_map, palette = class_color_palette(
             labels, cmap, binary_colors=label_colors, multiclass=multiclass
         )
@@ -471,7 +795,7 @@ def load_custom_cmap_from_txt(txt_path):
             r, g, b = map(float, parts[:3])
             data.append([r, g, b])
     if len(data) < 2:
-        raise ValueError("自定义色轴文件至少需要两行 RGB。")
+        raise ValueError(tr("err_cmap_rows"))
 
     arr = np.asarray(data, dtype=np.float32)
     if np.nanmax(arr) > 1.0:
@@ -492,10 +816,10 @@ def get_builtin_cmap(name):
 def validate_labels(labels, multiclass=False):
     labels = np.asarray(labels).reshape(-1)
     if labels.size == 0:
-        raise ValueError("标签为空。")
+        raise ValueError(tr("err_empty_labels"))
     unique_values = np.unique(labels)
     if not multiclass and unique_values.size > 2:
-        raise ValueError(f"当前为二分类模式，检测到 {unique_values.size} 个类别。请勾选“多分类标签”。")
+        raise ValueError(tr("err_binary", n=int(unique_values.size)))
     return labels
 
 
@@ -506,26 +830,24 @@ def load_labels_from_txt(label_path, multiclass=False):
 def load_pointcloud(path, with_labels=False, multiclass=False, label_col=4):
     data = np.asarray(np.loadtxt(path))
     if data.size == 0:
-        raise ValueError("点云文件为空。")
+        raise ValueError(tr("err_empty_cloud"))
     if data.ndim == 1:
         data = data.reshape(1, -1)
     if data.shape[1] < 3:
-        raise ValueError("点云至少需要 x y z 三列。")
+        raise ValueError(tr("err_need_xyz"))
 
     points = data[:, :3]
     labels = None
     if with_labels:
         col = int(label_col)
         if col < 1:
-            raise ValueError("标签列必须从 1 开始计数。")
+            raise ValueError(tr("err_col_start"))
         idx = col - 1
         if data.shape[1] <= idx:
-            raise ValueError(
-                f"已勾选“点云含标签”，但文件只有 {data.shape[1]} 列，无法读取第 {col} 列。"
-            )
+            raise ValueError(tr("err_col_missing", ncols=data.shape[1], col=col))
         labels = validate_labels(data[:, idx], multiclass=multiclass)
         if labels.shape[0] != points.shape[0]:
-            raise ValueError(f"标签数 {labels.shape[0]} 与点数 {points.shape[0]} 不一致。")
+            raise ValueError(tr("err_count_mismatch", nlabels=labels.shape[0], npoints=points.shape[0]))
     return points, labels
 
 
@@ -566,7 +888,7 @@ def execute_render_job(job, log, cancel_check=None, run_render=None):
     """在工作线程中执行单个渲染任务。log 为可调用对象。"""
     _raise_if_cancelled(cancel_check)
     file_path = job["file_path"]
-    log(f"📄 渲染文件：{file_path}")
+    log(tr("rendering_file", path=file_path))
     terrain, embedded_labels = load_pointcloud(
         file_path,
         with_labels=job["use_embedded_labels"],
@@ -583,24 +905,24 @@ def execute_render_job(job, log, cancel_check=None, run_render=None):
         try:
             noise = np.loadtxt(noise_path)[:, :3]
             noise = normalize_pointcloud(noise)[0]
-            log(f"🌫️ 已叠加噪声：{noise_path}")
+            log(tr("noise_added", path=noise_path))
         except Exception as e:
-            log(f"⚠️ 噪声点云读取失败：{e}")
+            log(tr("noise_fail", error=e))
 
     labels = None
     if job["use_embedded_labels"]:
         labels = embedded_labels
         n_cls = int(np.unique(labels).size) if labels is not None else 0
-        log(f"🏷️ 已从点云第 {job['label_col']} 列读取标签（{n_cls} 类）")
+        log(tr("labels_from_col", col=job["label_col"], n=n_cls))
     elif job.get("label_file"):
         try:
             labels = load_labels_from_txt(job["label_file"], multiclass=job["multiclass"])
             if labels.shape[0] != terrain.shape[0]:
-                raise ValueError(f"标签数 {labels.shape[0]} 与点数 {terrain.shape[0]} 不一致。")
+                raise ValueError(tr("err_count_mismatch", nlabels=labels.shape[0], npoints=terrain.shape[0]))
             n_cls = int(np.unique(labels).size)
-            log(f"🏷️ 已载入标签文件：{job['label_file']}（{n_cls} 类）")
+            log(tr("labels_from_file", path=job["label_file"], n=n_cls))
         except Exception as e:
-            log(f"⚠️ 标签文件读取失败，将回退到渐变色轴：{e}")
+            log(tr("labels_fallback", error=e))
             labels = None
 
     _raise_if_cancelled(cancel_check)
@@ -623,9 +945,9 @@ def execute_render_job(job, log, cancel_check=None, run_render=None):
         run_render=run_render,
     )
     _raise_if_cancelled(cancel_check)
-    log("正在写入 TIFF...")
+    log(tr("writing_tiff"))
     write_float_tiff(tiff_path, rgb)
-    log(f"✅ 渲染完成：\n{xml_path}\n{exr_path}\n{tiff_path}")
+    log(tr("render_done_files", xml=xml_path, exr=exr_path, tiff=tiff_path))
 
     preview_img = rgb if job.get("preview") else None
 
@@ -693,16 +1015,18 @@ def render_jobs_subprocess(jobs, variant, search_paths, log_path):
             mi.set_variant("scalar_rgb")
         # 父进程传来的搜索路径指向它自己的解压目录，子进程不能用。
         del search_paths
+        if jobs:
+            set_ui_lang(jobs[0].get("lang", "zh"))
         apply_mitsuba_search_paths(collect_mitsuba_search_paths())
         total = len(jobs)
         for i, job in enumerate(jobs, 1):
             name = os.path.basename(job["file_path"])
-            emit("STATUS", f"正在渲染 {i}/{total}：{name}")
+            emit("STATUS", tr("status_rendering", i=i, total=total, name=name))
             emit("LOG", f"—— [{i}/{total}] ——")
             try:
                 result = execute_render_job(job, lambda message: emit("LOG", message))
             except Exception as e:
-                emit("LOG", f"❌ 渲染失败：{job['file_path']} - {e}")
+                emit("LOG", tr("render_fail", path=job["file_path"], error=e))
                 continue
             emit("Z", f"{float(result['zmin'])}\t{float(result['zmax'])}")
             if result["labels"] is not None:
@@ -712,7 +1036,7 @@ def render_jobs_subprocess(jobs, variant, search_paths, log_path):
             if result["preview_img"] is not None:
                 emit("PREVIEW", job["xml_path"].replace(".xml", ".tiff"))
     except Exception as e:
-        emit("LOG", f"❌ 渲染任务异常中止：{e}")
+        emit("LOG", tr("render_abort", error=e))
     emit("DONE", "1")
 
 
@@ -842,7 +1166,7 @@ class RenderWorker(QObject):
                     cancelled = True
                     if proc.poll() is None:
                         proc.terminate()
-                    self.log_msg.emit("⏹️ 已取消，正在停止渲染进程。")
+                    self.log_msg.emit(tr("proc_cancel"))
                     break
                 offset, pending = self._consume_log(log_path, offset, pending)
                 if proc.poll() is not None:
@@ -858,15 +1182,15 @@ class RenderWorker(QObject):
                                 tail = handle.read()[-500:].strip()
                             if tail:
                                 detail = "\n" + tail
-                        self.log_msg.emit(f"❌ 渲染进程异常退出（代码 {proc.returncode}）。{detail}")
+                        self.log_msg.emit(tr("proc_crash", code=proc.returncode, detail=detail))
                     break
                 time.sleep(0.1)
         except Exception as e:
             if self._cancel_event.is_set():
                 cancelled = True
-                self.log_msg.emit("⏹️ 渲染已取消。")
+                self.log_msg.emit(tr("proc_cancelled"))
             else:
-                self.log_msg.emit(f"❌ 渲染任务异常中止：{e}")
+                self.log_msg.emit(tr("proc_abort", error=e))
         finally:
             if proc.poll() is None:
                 proc.terminate()
@@ -905,6 +1229,9 @@ class RenderUI(QWidget):
         super().__init__()
 
         self.settings = QSettings("GitHubCopilot", "MistubaRenderUI")
+        saved_lang = self.settings.value("ui_lang", "zh", type=str)
+        self.lang = "en" if saved_lang == "en" else "zh"
+        set_ui_lang(self.lang)
 
         self.setWindowTitle("MISTUBA RENDER (version:25/11/10/Author:sly)")
         self.setMinimumSize(960, 640)
@@ -940,86 +1267,87 @@ class RenderUI(QWidget):
         left.setContentsMargins(10, 10, 8, 10)
         left.setSpacing(8)
 
-        cloud_box = QGroupBox("1. 点云")
+        self.cloud_box = QGroupBox(tr("cloud_group"))
         cloud_layout = QVBoxLayout()
         cloud_btns = QHBoxLayout()
-        btn_terrain = QPushButton("选择文件")
-        btn_terrain.clicked.connect(self.choose_terrain)
-        cloud_btns.addWidget(btn_terrain)
-        btn_terrain_dir = QPushButton("选择文件夹")
-        btn_terrain_dir.clicked.connect(self.choose_terrain_dir)
-        cloud_btns.addWidget(btn_terrain_dir)
-        self.batch_check = QCheckBox("批量渲染文件夹内全部 .txt")
+        self.btn_terrain = QPushButton(tr("btn_file"))
+        self.btn_terrain.clicked.connect(self.choose_terrain)
+        cloud_btns.addWidget(self.btn_terrain)
+        self.btn_terrain_dir = QPushButton(tr("btn_folder"))
+        self.btn_terrain_dir.clicked.connect(self.choose_terrain_dir)
+        cloud_btns.addWidget(self.btn_terrain_dir)
+        self.batch_check = QCheckBox(tr("batch_check"))
         self.batch_check.setChecked(False)
         cloud_btns.addWidget(self.batch_check)
         cloud_btns.addStretch(1)
         cloud_layout.addLayout(cloud_btns)
-        self.lbl_terrain = QLabel("单文件：未选择")
-        self.lbl_terrain_dir = QLabel("文件夹：未选择")
+        self.lbl_terrain = QLabel(tr("file_none"))
+        self.lbl_terrain_dir = QLabel(tr("folder_none"))
         _style_path_label(self.lbl_terrain)
         _style_path_label(self.lbl_terrain_dir)
         cloud_layout.addWidget(self.lbl_terrain)
         cloud_layout.addWidget(self.lbl_terrain_dir)
-        cloud_box.setLayout(cloud_layout)
-        left.addWidget(cloud_box)
+        self.cloud_box.setLayout(cloud_layout)
+        left.addWidget(self.cloud_box)
 
-        label_box = QGroupBox("2. 标签")
+        self.label_box = QGroupBox(tr("label_group"))
         label_layout = QVBoxLayout()
         embed_row = QHBoxLayout()
-        self.labels_in_cloud_check = QCheckBox("点云含标签")
+        self.labels_in_cloud_check = QCheckBox(tr("labels_in_cloud"))
         self.labels_in_cloud_check.setChecked(False)
-        self.labels_in_cloud_check.setToolTip("打开后从点云文件指定列读取标签（单文件和批量都生效）。XYZ 仍使用前三列。")
+        self.labels_in_cloud_check.setToolTip(tr("labels_in_cloud_tip"))
         embed_row.addWidget(self.labels_in_cloud_check)
-        embed_row.addWidget(QLabel("列"))
+        self.lbl_col = QLabel(tr("col"))
+        embed_row.addWidget(self.lbl_col)
         self.label_col_box = QSpinBox()
         self.label_col_box.setRange(1, 64)
         self.label_col_box.setValue(4)
-        self.label_col_box.setToolTip("点云文件中标签所在列，从 1 开始计数，默认第 4 列。批量时文件夹内所有文件使用同一列。")
+        self.label_col_box.setToolTip(tr("col_tip"))
         embed_row.addWidget(self.label_col_box)
-        self.multiclass_check = QCheckBox("多分类")
+        self.multiclass_check = QCheckBox(tr("multiclass"))
         self.multiclass_check.setChecked(False)
-        self.multiclass_check.setToolTip("打开后允许 2 个以上类别，颜色按当前色轴自动分配；关闭则仅支持二分类，使用手动配色。")
+        self.multiclass_check.setToolTip(tr("multiclass_tip"))
         embed_row.addWidget(self.multiclass_check)
         embed_row.addStretch(1)
         label_layout.addLayout(embed_row)
 
         label_file_row = QHBoxLayout()
-        self.btn_label = QPushButton("选择单独标签文件")
+        self.btn_label = QPushButton(tr("btn_label_file"))
         self.btn_label.clicked.connect(self.choose_label)
         label_file_row.addWidget(self.btn_label)
-        self.btn_clear_label = QPushButton("清除")
+        self.btn_clear_label = QPushButton(tr("btn_clear"))
         self.btn_clear_label.clicked.connect(self.clear_label)
         label_file_row.addWidget(self.btn_clear_label)
         label_file_row.addStretch(1)
         label_layout.addLayout(label_file_row)
-        self.lbl_label = QLabel("未选择")
+        self.lbl_label = QLabel(tr("label_none"))
         _style_path_label(self.lbl_label)
         label_layout.addWidget(self.lbl_label)
-        label_box.setLayout(label_layout)
-        left.addWidget(label_box)
+        self.label_box.setLayout(label_layout)
+        left.addWidget(self.label_box)
 
-        noise_box = QGroupBox("3. 噪声（可选）")
+        self.noise_box = QGroupBox(tr("noise_group"))
         noise_layout = QVBoxLayout()
         noise_row = QHBoxLayout()
-        btn_noise = QPushButton("选择文件")
-        btn_noise.clicked.connect(self.choose_noise)
-        noise_row.addWidget(btn_noise)
-        btn_noise_dir = QPushButton("选择文件夹")
-        btn_noise_dir.setToolTip("批量时噪声文件名必须与干净点云相同，例如 clean/a.txt 对应 noise/a.txt")
-        btn_noise_dir.clicked.connect(self.choose_noise_dir)
-        noise_row.addWidget(btn_noise_dir)
-        btn_clear_noise = QPushButton("清除")
-        btn_clear_noise.clicked.connect(self.clear_noise)
-        noise_row.addWidget(btn_clear_noise)
+        self.btn_noise = QPushButton(tr("btn_file"))
+        self.btn_noise.clicked.connect(self.choose_noise)
+        noise_row.addWidget(self.btn_noise)
+        self.btn_noise_dir = QPushButton(tr("btn_folder"))
+        self.btn_noise_dir.setToolTip(tr("noise_dir_tip"))
+        self.btn_noise_dir.clicked.connect(self.choose_noise_dir)
+        noise_row.addWidget(self.btn_noise_dir)
+        self.btn_clear_noise = QPushButton(tr("btn_clear"))
+        self.btn_clear_noise.clicked.connect(self.clear_noise)
+        noise_row.addWidget(self.btn_clear_noise)
         noise_row.addStretch(1)
         noise_layout.addLayout(noise_row)
-        self.lbl_noise = QLabel("未选择")
+        self.lbl_noise = QLabel(tr("label_none"))
         _style_path_label(self.lbl_noise)
         noise_layout.addWidget(self.lbl_noise)
-        noise_box.setLayout(noise_layout)
-        left.addWidget(noise_box)
+        self.noise_box.setLayout(noise_layout)
+        left.addWidget(self.noise_box)
 
-        param_box = QGroupBox("4. 渲染参数")
+        self.param_box = QGroupBox(tr("param_group"))
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.ball_size_box = QDoubleSpinBox()
@@ -1027,21 +1355,24 @@ class RenderUI(QWidget):
         self.ball_size_box.setRange(0.0001, 1.0)
         self.ball_size_box.setSingleStep(0.001)
         self.ball_size_box.setValue(0.011)
-        form.addRow("主点球半径", self.ball_size_box)
+        form.addRow(tr("ball_radius"), self.ball_size_box)
+        self.lbl_ball = form.labelForField(self.ball_size_box)
 
         self.noise_ball_size_box = QDoubleSpinBox()
         self.noise_ball_size_box.setDecimals(6)
         self.noise_ball_size_box.setRange(0.0001, 1.0)
         self.noise_ball_size_box.setSingleStep(0.001)
         self.noise_ball_size_box.setValue(0.004)
-        form.addRow("噪声球半径", self.noise_ball_size_box)
+        form.addRow(tr("noise_radius"), self.noise_ball_size_box)
+        self.lbl_noise_radius = form.labelForField(self.noise_ball_size_box)
 
         self.floor_z_box = QDoubleSpinBox()
         self.floor_z_box.setDecimals(4)
         self.floor_z_box.setRange(-1000.0, 1000.0)
         self.floor_z_box.setSingleStep(0.01)
         self.floor_z_box.setValue(-0.15)
-        form.addRow("底板高度 z", self.floor_z_box)
+        form.addRow(tr("floor_z"), self.floor_z_box)
+        self.lbl_floor = form.labelForField(self.floor_z_box)
 
         cam_layout = QHBoxLayout()
         self.cam_x = QDoubleSpinBox(); self.cam_x.setRange(-1000, 1000); self.cam_x.setValue(-3.0)
@@ -1053,27 +1384,31 @@ class RenderUI(QWidget):
         cam_layout.addWidget(QLabel("Y")); cam_layout.addWidget(self.cam_y)
         cam_layout.addWidget(QLabel("Z")); cam_layout.addWidget(self.cam_z)
         cam_wrap = QWidget(); cam_wrap.setLayout(cam_layout)
-        form.addRow("相机 origin", cam_wrap)
-        param_box.setLayout(form)
-        left.addWidget(param_box)
+        form.addRow(tr("camera_origin"), cam_wrap)
+        self.lbl_camera = form.labelForField(cam_wrap)
+        self.param_box.setLayout(form)
+        left.addWidget(self.param_box)
 
-        color_box = QGroupBox("5. 着色")
+        self.color_box = QGroupBox(tr("color_group"))
         color_layout = QVBoxLayout()
         cmap_row = QHBoxLayout()
-        cmap_row.addWidget(QLabel("色轴"))
+        self.lbl_cmap_name = QLabel(tr("colormap"))
+        cmap_row.addWidget(self.lbl_cmap_name)
         self.cmap_combo = QComboBox()
-        self.cmap_combo.addItems(BUILTIN_CMAPS + ["(自定义txt)"])
+        for name in BUILTIN_CMAPS:
+            self.cmap_combo.addItem(name, name)
+        self.cmap_combo.addItem(tr("cmap_custom"), CUSTOM_CMAP_TOKEN)
         self.cmap_combo.currentTextChanged.connect(self.on_cmap_changed)
         cmap_row.addWidget(self.cmap_combo, 1)
-        self.btn_load_custom_cmap = QPushButton("载入 txt")
+        self.btn_load_custom_cmap = QPushButton(tr("btn_load_cmap"))
         self.btn_load_custom_cmap.clicked.connect(self.load_custom_cmap)
         cmap_row.addWidget(self.btn_load_custom_cmap)
         color_layout.addLayout(cmap_row)
-        self.lbl_custom_cmap = QLabel("当前：内置 viridis")
+        self.lbl_custom_cmap = QLabel(tr("cmap_builtin", name="viridis"))
         _style_path_label(self.lbl_custom_cmap)
         color_layout.addWidget(self.lbl_custom_cmap)
 
-        self.lbl_colorbar_caption = QLabel("渐变色轴预览（无标签时使用）")
+        self.lbl_colorbar_caption = QLabel(tr("caption_gradient"))
         color_layout.addWidget(self.lbl_colorbar_caption)
         self.colorbar_label = QLabel()
         self.colorbar_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -1081,14 +1416,14 @@ class RenderUI(QWidget):
         color_layout.addWidget(self.colorbar_label)
 
         binary_row = QHBoxLayout()
-        self.btn_label0_color = QPushButton("类别 0")
+        self.btn_label0_color = QPushButton(tr("class0"))
         self.btn_label0_color.clicked.connect(lambda: self.choose_label_color(0))
         binary_row.addWidget(self.btn_label0_color)
         self.label0_preview = QLabel("0")
         self.label0_preview.setAlignment(Qt.AlignCenter)
         self.label0_preview.setFixedSize(36, 24)
         binary_row.addWidget(self.label0_preview)
-        self.btn_label1_color = QPushButton("类别 1")
+        self.btn_label1_color = QPushButton(tr("class1"))
         self.btn_label1_color.clicked.connect(lambda: self.choose_label_color(1))
         binary_row.addWidget(self.btn_label1_color)
         self.label1_preview = QLabel("1")
@@ -1097,34 +1432,34 @@ class RenderUI(QWidget):
         binary_row.addWidget(self.label1_preview)
         binary_row.addStretch(1)
         color_layout.addLayout(binary_row)
-        color_box.setLayout(color_layout)
-        left.addWidget(color_box)
+        self.color_box.setLayout(color_layout)
+        left.addWidget(self.color_box)
 
-        output_box = QGroupBox("6. 输出")
+        self.output_box = QGroupBox(tr("output_group"))
         output_layout = QVBoxLayout()
         output_row = QHBoxLayout()
-        btn_output = QPushButton("指定 XML 路径")
-        btn_output.clicked.connect(self.choose_output_xml)
-        output_row.addWidget(btn_output)
-        btn_clear_output = QPushButton("恢复自动")
-        btn_clear_output.clicked.connect(self.clear_output_xml)
-        output_row.addWidget(btn_clear_output)
+        self.btn_output = QPushButton(tr("btn_xml"))
+        self.btn_output.clicked.connect(self.choose_output_xml)
+        output_row.addWidget(self.btn_output)
+        self.btn_clear_output = QPushButton(tr("btn_auto"))
+        self.btn_clear_output.clicked.connect(self.clear_output_xml)
+        output_row.addWidget(self.btn_clear_output)
         output_row.addStretch(1)
         output_layout.addLayout(output_row)
-        self.lbl_output = QLabel("输出 XML 将自动生成（单文件模式）")
+        self.lbl_output = QLabel(tr("output_default"))
         _style_path_label(self.lbl_output)
         output_layout.addWidget(self.lbl_output)
-        output_box.setLayout(output_layout)
-        left.addWidget(output_box)
+        self.output_box.setLayout(output_layout)
+        left.addWidget(self.output_box)
 
         left.addStretch(1)
 
-        btn_start = QPushButton("开始渲染")
+        btn_start = QPushButton(tr("btn_start"))
         btn_start.setObjectName("btnStart")
         btn_start.clicked.connect(self.render_scene)
         self.btn_start = btn_start
         left.addWidget(btn_start)
-        btn_reload_preview = QPushButton("从 TIFF 载入预览")
+        btn_reload_preview = QPushButton(tr("btn_reload"))
         btn_reload_preview.clicked.connect(self.reload_tiff_preview)
         self.btn_reload_preview = btn_reload_preview
         left.addWidget(btn_reload_preview)
@@ -1143,36 +1478,36 @@ class RenderUI(QWidget):
         right.setContentsMargins(8, 10, 10, 10)
         right.setSpacing(8)
 
-        preview_box = QGroupBox("预览")
+        self.preview_box = QGroupBox(tr("preview_group"))
         pv = QVBoxLayout()
         z_range_layout = QHBoxLayout()
-        self.lbl_zmin = QLabel("zmin: -")
-        self.lbl_zmax = QLabel("zmax: -")
+        self.lbl_zmin = QLabel(tr("zmin_empty"))
+        self.lbl_zmax = QLabel(tr("zmax_empty"))
         z_range_layout.addWidget(self.lbl_zmin)
         z_range_layout.addStretch(1)
         z_range_layout.addWidget(self.lbl_zmax)
         pv.addLayout(z_range_layout)
 
-        self.render_preview = QLabel("渲染结果将显示在这里")
+        self.render_preview = QLabel(tr("preview_placeholder"))
         self.render_preview.setAlignment(Qt.AlignCenter)
         self.render_preview.setMinimumHeight(240)
         self.render_preview.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.render_preview.setStyleSheet("border: 1px solid #ccc; background: #f7f7f7;")
         pv.addWidget(self.render_preview, 1)
-        preview_box.setLayout(pv)
-        preview_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.preview_box.setLayout(pv)
+        self.preview_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        log_box = QGroupBox("日志")
+        self.log_box = QGroupBox(tr("log_group"))
         log_layout = QVBoxLayout()
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log.setMinimumHeight(90)
         log_layout.addWidget(self.log)
-        log_box.setLayout(log_layout)
+        self.log_box.setLayout(log_layout)
 
         right_split = QSplitter(Qt.Vertical)
-        right_split.addWidget(preview_box)
-        right_split.addWidget(log_box)
+        right_split.addWidget(self.preview_box)
+        right_split.addWidget(self.log_box)
         right_split.setStretchFactor(0, 4)
         right_split.setStretchFactor(1, 1)
         right_split.setChildrenCollapsible(False)
@@ -1186,8 +1521,18 @@ class RenderUI(QWidget):
         splitter.setSizes([420, 860])
         splitter.setChildrenCollapsible(False)
 
+        self.btn_lang = QPushButton("English" if self.lang == "zh" else "中文")
+        self.btn_lang.setToolTip(tr("lang_tip"))
+        self.btn_lang.setCursor(Qt.PointingHandCursor)
+        self.btn_lang.clicked.connect(self.toggle_language)
+        lang_bar = QHBoxLayout()
+        lang_bar.setContentsMargins(10, 8, 10, 0)
+        lang_bar.addStretch(1)
+        lang_bar.addWidget(self.btn_lang)
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
+        outer.addLayout(lang_bar)
         outer.addWidget(splitter)
 
         self._rendering = False
@@ -1210,12 +1555,12 @@ class RenderUI(QWidget):
             mi.set_variant('cuda_ad_rgb')
         except Exception as e:
             # 如果没有 CUDA 插件，可改用 scalar_rgb 或 llvm_ad_rgb
-            self.log.append(f"⚠️ 设置 Mitsuba 变体失败：{e}\n将尝试使用 'scalar_rgb'")
+            self.log.append(tr("variant_fail", error=e))
             try:
                 mi.set_variant('scalar_rgb')
                 self._mi_variant = "scalar_rgb"
             except Exception as e2:
-                self.log.append(f"⚠️ 备用变体设置仍失败：{e2}")
+                self.log.append(tr("variant_fail2", error=e2))
         self._mi_search_paths = collect_mitsuba_search_paths()
 
     def bind_settings_signals(self):
@@ -1269,11 +1614,10 @@ class RenderUI(QWidget):
 
         if terrain_file and os.path.exists(terrain_file):
             self.terrain_file = terrain_file
-            self.lbl_terrain.setText(f"单文件：{terrain_file}")
 
         if terrain_dir and os.path.isdir(terrain_dir):
             self.terrain_dir = terrain_dir
-            self.lbl_terrain_dir.setText(f"文件夹：{terrain_dir}")
+        self.refresh_terrain_labels()
 
         if noise_file and os.path.exists(noise_file):
             self.noise_file = noise_file
@@ -1283,21 +1627,19 @@ class RenderUI(QWidget):
 
         if label_file and os.path.exists(label_file):
             self.label_file = label_file
-            self.lbl_label.setText(label_file)
 
         if custom_cmap_path and os.path.exists(custom_cmap_path):
             try:
                 self.cmap = load_custom_cmap_from_txt(custom_cmap_path)
                 self.custom_cmap_path = custom_cmap_path
-                self.cmap_combo.setCurrentText("(自定义txt)")
-                self.lbl_custom_cmap.setText(f"当前：自定义 {os.path.basename(custom_cmap_path)}")
+                self.cmap_combo.setCurrentIndex(self.cmap_combo.findData(CUSTOM_CMAP_TOKEN))
             except Exception:
                 self.custom_cmap_path = None
-                self.cmap_combo.setCurrentText(cmap_name if cmap_name in BUILTIN_CMAPS else "viridis")
+                self._select_builtin_cmap(cmap_name if cmap_name in BUILTIN_CMAPS else "viridis")
         else:
-            self.cmap_combo.setCurrentText(cmap_name if cmap_name in BUILTIN_CMAPS else "viridis")
+            self._select_builtin_cmap(cmap_name if cmap_name in BUILTIN_CMAPS else "viridis")
             self.cmap = get_builtin_cmap(self.cmap_combo.currentText())
-            self.lbl_custom_cmap.setText(f"当前：内置 {self.cmap_combo.currentText()}")
+        self.refresh_cmap_label()
 
         if output_xml_manual and output_xml:
             self.output_xml = output_xml
@@ -1329,23 +1671,131 @@ class RenderUI(QWidget):
         self.settings.setValue("label_file", self.label_file)
         self.settings.setValue("output_xml", self.output_xml)
         self.settings.setValue("output_xml_manual", self.output_xml_manual)
-        self.settings.setValue("cmap_name", self.cmap_combo.currentText())
+        self.settings.setValue("cmap_name", self._cmap_setting_value())
         self.settings.setValue("custom_cmap_path", self.custom_cmap_path or "")
         self.settings.setValue("label_color_0", rgb_to_hex(self.label_colors[0]))
         self.settings.setValue("label_color_1", rgb_to_hex(self.label_colors[1]))
+        self.settings.setValue("ui_lang", self.lang)
         self.settings.sync()
+
+    def _cmap_setting_value(self):
+        if self.cmap_combo.currentData() == CUSTOM_CMAP_TOKEN:
+            return CUSTOM_CMAP_TOKEN
+        return self.cmap_combo.currentText()
+
+    def _select_builtin_cmap(self, name):
+        if name not in BUILTIN_CMAPS:
+            name = "viridis"
+        index = self.cmap_combo.findData(name)
+        if index < 0:
+            index = 0
+        self.cmap_combo.setCurrentIndex(index)
+
+    def refresh_terrain_labels(self):
+        if self.terrain_file:
+            self.lbl_terrain.setText(tr("file_selected", path=self.terrain_file))
+        else:
+            self.lbl_terrain.setText(tr("file_none"))
+        if self.terrain_dir:
+            self.lbl_terrain_dir.setText(tr("folder_selected", path=self.terrain_dir))
+        else:
+            self.lbl_terrain_dir.setText(tr("folder_none"))
+
+    def refresh_cmap_label(self):
+        if self.cmap_combo.currentData() == CUSTOM_CMAP_TOKEN:
+            if self.custom_cmap_path:
+                self.lbl_custom_cmap.setText(
+                    tr("cmap_custom_current", name=os.path.basename(self.custom_cmap_path))
+                )
+            else:
+                self.lbl_custom_cmap.setText(tr("cmap_custom_empty"))
+        else:
+            self.lbl_custom_cmap.setText(tr("cmap_builtin", name=self.cmap_combo.currentText()))
+
+    def toggle_language(self):
+        self.lang = "en" if self.lang != "en" else "zh"
+        set_ui_lang(self.lang)
+        self.settings.setValue("ui_lang", self.lang)
+        self.apply_language()
+
+    def apply_language(self):
+        self.btn_lang.setText("English" if self.lang == "zh" else "中文")
+        self.btn_lang.setToolTip(tr("lang_tip"))
+        self.cloud_box.setTitle(tr("cloud_group"))
+        self.btn_terrain.setText(tr("btn_file"))
+        self.btn_terrain_dir.setText(tr("btn_folder"))
+        self.batch_check.setText(tr("batch_check"))
+        self.label_box.setTitle(tr("label_group"))
+        self.labels_in_cloud_check.setText(tr("labels_in_cloud"))
+        self.labels_in_cloud_check.setToolTip(tr("labels_in_cloud_tip"))
+        self.lbl_col.setText(tr("col"))
+        self.label_col_box.setToolTip(tr("col_tip"))
+        self.multiclass_check.setText(tr("multiclass"))
+        self.multiclass_check.setToolTip(tr("multiclass_tip"))
+        self.btn_label.setText(tr("btn_label_file"))
+        self.btn_clear_label.setText(tr("btn_clear"))
+        self.noise_box.setTitle(tr("noise_group"))
+        self.btn_noise.setText(tr("btn_file"))
+        self.btn_noise_dir.setText(tr("btn_folder"))
+        self.btn_noise_dir.setToolTip(tr("noise_dir_tip"))
+        self.btn_clear_noise.setText(tr("btn_clear"))
+        self.param_box.setTitle(tr("param_group"))
+        self.lbl_ball.setText(tr("ball_radius"))
+        self.lbl_noise_radius.setText(tr("noise_radius"))
+        self.lbl_floor.setText(tr("floor_z"))
+        self.lbl_camera.setText(tr("camera_origin"))
+        self.color_box.setTitle(tr("color_group"))
+        self.lbl_cmap_name.setText(tr("colormap"))
+        self.cmap_combo.blockSignals(True)
+        custom_index = self.cmap_combo.findData(CUSTOM_CMAP_TOKEN)
+        if custom_index >= 0:
+            self.cmap_combo.setItemText(custom_index, tr("cmap_custom"))
+        self.cmap_combo.blockSignals(False)
+        self.btn_load_custom_cmap.setText(tr("btn_load_cmap"))
+        self.btn_label0_color.setText(tr("class0"))
+        self.btn_label1_color.setText(tr("class1"))
+        self.output_box.setTitle(tr("output_group"))
+        self.btn_output.setText(tr("btn_xml"))
+        self.btn_clear_output.setText(tr("btn_auto"))
+        self.btn_start.setText(tr("btn_start"))
+        self.btn_reload_preview.setText(tr("btn_reload"))
+        self.preview_box.setTitle(tr("preview_group"))
+        self.log_box.setTitle(tr("log_group"))
+        self.refresh_terrain_labels()
+        self.refresh_noise_label()
+        self.refresh_output_label()
+        self.refresh_cmap_label()
+        self.refresh_label_source_ui()
+        self.refresh_label_mode_ui()
+        if self.zmin is not None and self.zmax is not None:
+            self.set_z_minmax_labels(self.zmin, self.zmax)
+        else:
+            self.lbl_zmin.setText(tr("zmin_empty"))
+            self.lbl_zmax.setText(tr("zmax_empty"))
+        if self._preview_pix is None:
+            self.render_preview.setText(tr("preview_placeholder"))
+        self.btn_cancel_render.setText(tr("cancelling") if self._cancel_requested else tr("cancel_render"))
+        if self.loading_overlay.isVisible():
+            if self._cancel_requested:
+                self.loading_title.setText(tr("cancelling_title"))
+                self.loading_status.setText(tr("stopping"))
+            elif self._loading_seconds:
+                self.loading_title.setText(tr("rendering_elapsed", seconds=self._loading_seconds))
+            else:
+                self.loading_title.setText(tr("rendering_wait"))
 
     def closeEvent(self, event):
         if self._rendering:
             if not self._cancel_requested:
-                reply = QMessageBox.question(
-                    self,
-                    "正在渲染",
-                    "渲染尚未完成。要取消渲染并关闭窗口吗？",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No,
-                )
-                if reply != QMessageBox.Yes:
+                box = QMessageBox(self)
+                box.setIcon(QMessageBox.Question)
+                box.setWindowTitle(tr("dlg_rendering"))
+                box.setText(tr("close_prompt"))
+                box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                box.setDefaultButton(QMessageBox.No)
+                box.button(QMessageBox.Yes).setText(tr("dlg_yes"))
+                box.button(QMessageBox.No).setText(tr("dlg_no"))
+                if box.exec_() != QMessageBox.Yes:
                     event.ignore()
                     return
                 self._quit_when_idle = True
@@ -1365,32 +1815,28 @@ class RenderUI(QWidget):
 
     # -------------------- 色轴相关 --------------------
 
-    def on_cmap_changed(self, text):
-        if text == "(自定义txt)":
-            if self.custom_cmap_path:
-                # 已有自定义
-                self.lbl_custom_cmap.setText(f"当前：自定义 {os.path.basename(self.custom_cmap_path)}")
-            else:
-                self.lbl_custom_cmap.setText("当前：自定义（尚未载入）")
+    def on_cmap_changed(self, _text=None):
+        if self.cmap_combo.currentData() == CUSTOM_CMAP_TOKEN:
+            self.refresh_cmap_label()
         else:
             self.custom_cmap_path = None
-            self.cmap = get_builtin_cmap(text)
-            self.lbl_custom_cmap.setText(f"当前：内置 {text}")
+            self.cmap = get_builtin_cmap(self.cmap_combo.currentText())
+            self.refresh_cmap_label()
             self.update_colorbar()
 
     def load_custom_cmap(self):
-        file, _ = QFileDialog.getOpenFileName(self, "选择自定义色轴 txt", "", "TXT Files (*.txt)")
+        file, _ = QFileDialog.getOpenFileName(self, tr("choose_cmap"), "", tr("filter_txt"))
         if not file:
             return
         try:
             self.cmap = load_custom_cmap_from_txt(file)
             self.custom_cmap_path = file
-            self.cmap_combo.setCurrentText("(自定义txt)")
-            self.lbl_custom_cmap.setText(f"当前：自定义 {os.path.basename(file)}")
+            self.cmap_combo.setCurrentIndex(self.cmap_combo.findData(CUSTOM_CMAP_TOKEN))
+            self.refresh_cmap_label()
             self.update_colorbar()
-            self.log.append(f"🎨 已载入自定义色轴：{file}")
+            self.log.append(tr("cmap_loaded", path=file))
         except Exception as e:
-            QMessageBox.critical(self, "色轴载入失败", str(e))
+            QMessageBox.critical(self, tr("cmap_fail"), str(e))
 
     def update_colorbar(self):
         if self.multiclass_check.isChecked() and self._label_class_count > 0:
@@ -1413,19 +1859,19 @@ class RenderUI(QWidget):
 
     def choose_label_color(self, index):
         initial = QColor(rgb_to_hex(self.label_colors[index]))
-        color = QColorDialog.getColor(initial, self, f"选择类别 {index} 颜色")
+        color = QColorDialog.getColor(initial, self, tr("choose_class_color", index=index))
         if not color.isValid():
             return
         self.label_colors[index] = qcolor_to_rgb_tuple(color)
         self.update_label_color_widgets()
         self.save_settings()
-        self.log.append(f"🎨 已更新类别 {index} 配色：{rgb_to_hex(self.label_colors[index])}")
+        self.log.append(tr("color_updated", index=index, hex=rgb_to_hex(self.label_colors[index])))
 
     # -------------------- 公用更新 --------------------
 
     def set_z_minmax_labels(self, zmin, zmax):
-        self.lbl_zmin.setText(f"zmin: {zmin:.4f}")
-        self.lbl_zmax.setText(f"zmax: {zmax:.4f}")
+        self.lbl_zmin.setText(tr("zmin", value=f"{zmin:.4f}"))
+        self.lbl_zmax.setText(tr("zmax", value=f"{zmax:.4f}"))
 
     def show_image_on_label(self, rgb, label: QLabel):
         pix = numpy_rgb_to_qpixmap(rgb)
@@ -1460,22 +1906,21 @@ class RenderUI(QWidget):
 
     def refresh_output_label(self):
         if self.output_xml_manual and self.output_xml:
-            self.lbl_output.setText(f"手动：{self.output_xml}")
+            self.lbl_output.setText(tr("output_manual", path=self.output_xml))
         elif self.terrain_file:
-            self.lbl_output.setText(f"自动：{self.get_default_output_xml(self.terrain_file)}")
+            self.lbl_output.setText(tr("output_auto", path=self.get_default_output_xml(self.terrain_file)))
         else:
-            self.lbl_output.setText("单文件模式将自动在点云同目录生成 XML")
+            self.lbl_output.setText(tr("output_default"))
 
     # -------------------- 选择文件/文件夹 --------------------
 
     def choose_terrain(self):
-        file, _ = QFileDialog.getOpenFileName(self, "选择点云文件", "", "TXT Files (*.txt)")
+        file, _ = QFileDialog.getOpenFileName(self, tr("choose_cloud"), "", tr("filter_txt"))
         if file:
             self.terrain_file = file
-            self.lbl_terrain.setText(f"单文件：{file}")
-            self.terrain_dir = ""  # 若选择了单文件，清空文件夹
-            self.lbl_terrain_dir.setText("文件夹：未选择")
+            self.terrain_dir = ""
             self.batch_check.setChecked(False)
+            self.refresh_terrain_labels()
 
             if not self.output_xml_manual:
                 self.output_xml = ""
@@ -1496,49 +1941,48 @@ class RenderUI(QWidget):
                 if embedded_labels is not None:
                     self.remember_label_classes(embedded_labels)
             except Exception as e:
-                self.log.append(f"⚠️ 读取点云失败，无法更新 z 范围：{e}")
+                self.log.append(tr("read_cloud_fail", error=e))
             self.save_settings()
 
     def choose_terrain_dir(self):
-        d = QFileDialog.getExistingDirectory(self, "选择点云文件夹", "")
+        d = QFileDialog.getExistingDirectory(self, tr("choose_cloud_dir"), "")
         if d:
             self.terrain_dir = d
-            self.lbl_terrain_dir.setText(f"文件夹：{d}")
-            self.terrain_file = ""   # 若选择文件夹，清空单文件
-            self.lbl_terrain.setText("单文件：未选择")
+            self.terrain_file = ""
+            self.refresh_terrain_labels()
             self.refresh_output_label()
             self.batch_check.setChecked(True)
             self.save_settings()
 
     def choose_noise(self):
-        file, _ = QFileDialog.getOpenFileName(self, "选择噪声点云文件", "", "TXT Files (*.txt)")
+        file, _ = QFileDialog.getOpenFileName(self, tr("choose_noise"), "", tr("filter_txt"))
         if file:
             self.noise_file = file
             self.refresh_noise_label()
             self.save_settings()
 
     def choose_noise_dir(self):
-        d = QFileDialog.getExistingDirectory(self, "选择噪声点云文件夹", "")
+        d = QFileDialog.getExistingDirectory(self, tr("choose_noise_dir"), "")
         if d:
             self.noise_dir = d
             self.refresh_noise_label()
             self.save_settings()
-            self.log.append("批量噪声将按文件名与干净点云一一对应，例如 clean/a.txt 对应 noise/a.txt")
+            self.log.append(tr("batch_noise_hint"))
 
     def clear_noise(self):
         self.noise_file = ""
         self.noise_dir = ""
         self.refresh_noise_label()
         self.save_settings()
-        self.log.append("已取消噪声点云文件/文件夹")
+        self.log.append(tr("noise_cleared"))
 
     def refresh_noise_label(self):
         parts = []
         if self.noise_file:
-            parts.append(f"单文件：{self.noise_file}")
+            parts.append(tr("noise_file", path=self.noise_file))
         if self.noise_dir:
-            parts.append(f"批量文件夹：{self.noise_dir}（文件名需与干净点云相同）")
-        self.lbl_noise.setText("；".join(parts) if parts else "未选择")
+            parts.append(tr("noise_batch", path=self.noise_dir))
+        self.lbl_noise.setText(tr("list_sep").join(parts) if parts else tr("label_none"))
 
     def find_matching_noise_file(self, clean_path):
         if not self.noise_dir or not os.path.isdir(self.noise_dir):
@@ -1551,7 +1995,7 @@ class RenderUI(QWidget):
         return None
 
     def choose_label(self):
-        file, _ = QFileDialog.getOpenFileName(self, "选择标签文件", "", "TXT Files (*.txt);;CSV Files (*.csv);;All Files (*)")
+        file, _ = QFileDialog.getOpenFileName(self, tr("choose_label"), "", tr("filter_label"))
         if file:
             self.label_file = file
             self.lbl_label.setText(file)
@@ -1559,14 +2003,14 @@ class RenderUI(QWidget):
                 labels = load_labels_from_txt(file, multiclass=self.multiclass_check.isChecked())
                 self.remember_label_classes(labels)
             except Exception as e:
-                self.log.append(f"⚠️ 标签文件读取失败：{e}")
+                self.log.append(tr("label_read_fail", error=e))
             self.save_settings()
 
     def clear_label(self):
         self.label_file = ""
-        self.lbl_label.setText("未选择")
+        self.lbl_label.setText(tr("label_none"))
         self.save_settings()
-        self.log.append("已取消标签文件")
+        self.log.append(tr("label_cleared"))
 
     def on_labels_in_cloud_changed(self):
         self.refresh_label_source_ui()
@@ -1595,7 +2039,7 @@ class RenderUI(QWidget):
             )
             self.remember_label_classes(labels)
         except Exception as e:
-            self.log.append(f"⚠️ 按当前标签设置重新读取失败：{e}")
+            self.log.append(tr("label_reload_fail", error=e))
 
     def remember_label_classes(self, labels):
         if labels is None:
@@ -1612,13 +2056,11 @@ class RenderUI(QWidget):
         self.label1_preview.setVisible(not multi)
         if multi:
             if self._label_class_count > 0:
-                self.lbl_colorbar_caption.setText(
-                    f"多分类色轴预览（{self._label_class_count} 类，按当前色轴自动分配）"
-                )
+                self.lbl_colorbar_caption.setText(tr("caption_multi_n", n=self._label_class_count))
             else:
-                self.lbl_colorbar_caption.setText("多分类色轴预览（载入标签后按当前色轴自动分配）")
+                self.lbl_colorbar_caption.setText(tr("caption_multi_empty"))
         else:
-            self.lbl_colorbar_caption.setText("渐变色轴预览（无标签时使用）")
+            self.lbl_colorbar_caption.setText(tr("caption_gradient"))
         self.update_colorbar()
 
     def refresh_label_source_ui(self):
@@ -1628,15 +2070,15 @@ class RenderUI(QWidget):
         self.label_col_box.setEnabled(embedded)
         if embedded:
             col = self.label_col_box.value()
-            self.lbl_label.setText(f"每个点云文件都使用第 {col} 列作为标签")
+            self.lbl_label.setText(tr("label_embedded", col=col))
         elif self.label_file:
             self.lbl_label.setText(self.label_file)
         else:
-            self.lbl_label.setText("未选择")
+            self.lbl_label.setText(tr("label_none"))
 
     def choose_output_xml(self):
         default_path = self.output_xml if self.output_xml_manual and self.output_xml else self.get_default_output_xml(self.terrain_file) if self.terrain_file else "scene.xml"
-        file, _ = QFileDialog.getSaveFileName(self, "选择输出 XML 路径", default_path, "XML Files (*.xml)")
+        file, _ = QFileDialog.getSaveFileName(self, tr("choose_xml"), default_path, tr("filter_xml"))
         if file:
             if not file.lower().endswith(".xml"):
                 file += ".xml"
@@ -1650,7 +2092,7 @@ class RenderUI(QWidget):
         self.output_xml_manual = False
         self.refresh_output_label()
         self.save_settings()
-        self.log.append("已取消手动输出路径，恢复为自动生成")
+        self.log.append(tr("output_reset"))
 
     # -------------------- 渲染 / Loading --------------------
 
@@ -1662,17 +2104,17 @@ class RenderUI(QWidget):
         box = QVBoxLayout(self.loading_overlay)
         box.setAlignment(Qt.AlignCenter)
         box.setSpacing(12)
-        self.loading_title = QLabel("正在渲染，请稍候…")
+        self.loading_title = QLabel(tr("rendering_wait"))
         self.loading_title.setAlignment(Qt.AlignCenter)
         self.loading_title.setStyleSheet("color: white; font-size: 18px; font-weight: bold; background: transparent;")
-        self.loading_status = QLabel("准备中")
+        self.loading_status = QLabel(tr("preparing"))
         self.loading_status.setAlignment(Qt.AlignCenter)
         self.loading_status.setStyleSheet("color: #eee; font-size: 13px; background: transparent;")
         self.loading_bar = QProgressBar()
         self.loading_bar.setRange(0, 0)
         self.loading_bar.setFixedWidth(280)
         self.loading_bar.setTextVisible(False)
-        self.btn_cancel_render = QPushButton("取消渲染")
+        self.btn_cancel_render = QPushButton(tr("cancel_render"))
         self.btn_cancel_render.setFixedSize(160, 36)
         self.btn_cancel_render.setCursor(Qt.PointingHandCursor)
         self.btn_cancel_render.setStyleSheet(
@@ -1703,17 +2145,17 @@ class RenderUI(QWidget):
         if self._cancel_requested:
             return
         self._loading_seconds += 1
-        self.loading_title.setText(f"正在渲染，请稍候… 已用时 {self._loading_seconds} 秒")
+        self.loading_title.setText(tr("rendering_elapsed", seconds=self._loading_seconds))
 
-    def _set_loading(self, on, status="准备中"):
+    def _set_loading(self, on, status=None):
         self._sync_loading_overlay()
         if on:
             self._loading_seconds = 0
             self._cancel_requested = False
-            self.loading_title.setText("正在渲染，请稍候…")
-            self.loading_status.setText(status)
+            self.loading_title.setText(tr("rendering_wait"))
+            self.loading_status.setText(status if status is not None else tr("preparing"))
             self.btn_cancel_render.setEnabled(True)
-            self.btn_cancel_render.setText("取消渲染")
+            self.btn_cancel_render.setText(tr("cancel_render"))
             self.loading_overlay.show()
             self.loading_overlay.raise_()
             self._loading_timer.start()
@@ -1733,10 +2175,10 @@ class RenderUI(QWidget):
             return
         self._cancel_requested = True
         self.btn_cancel_render.setEnabled(False)
-        self.btn_cancel_render.setText("正在取消…")
-        self.loading_title.setText("正在取消渲染，请稍候…")
-        self.loading_status.setText("正在停止当前任务")
-        self.log.append("⏹️ 已请求取消渲染")
+        self.btn_cancel_render.setText(tr("cancelling"))
+        self.loading_title.setText(tr("cancelling_title"))
+        self.loading_status.setText(tr("stopping"))
+        self.log.append(tr("cancel_requested"))
         worker.request_cancel()
 
     def _snapshot_render_job(self, file_path, preview=False, noise_path=None):
@@ -1755,6 +2197,7 @@ class RenderUI(QWidget):
             "cmap": pack_cmap(self.cmap),
             "label_colors": list(self.label_colors),
             "xml_path": self.get_output_xml_path(file_path),
+            "lang": self.lang,
         }
 
     def _start_render_jobs(self, jobs, done_message=""):
@@ -1762,7 +2205,7 @@ class RenderUI(QWidget):
             return
         self._rendering = True
         self._render_done_message = done_message
-        self._set_loading(True, f"队列中共 {len(jobs)} 个任务")
+        self._set_loading(True, tr("queue_status", n=len(jobs)))
 
         thread = QThread(self)
         worker = RenderWorker(
@@ -1794,7 +2237,7 @@ class RenderUI(QWidget):
         self._cancel_requested = False
         self._set_loading(False)
         if cancelled:
-            self.log.append("⏹️ 渲染已取消。未完成的图像不会保存。")
+            self.log.append(tr("render_cancelled"))
         elif done_message:
             self.log.append(done_message)
         self._render_thread = None
@@ -1805,26 +2248,26 @@ class RenderUI(QWidget):
 
     def render_scene(self):
         if self._rendering:
-            QMessageBox.information(self, "请稍候", "当前正在渲染。如需停止，请点击“取消渲染”或按 Esc。")
+            QMessageBox.information(self, tr("dlg_wait"), tr("busy_stop"))
             return
 
         jobs = []
         done_message = ""
         if self.batch_check.isChecked():
             if not self.terrain_dir:
-                QMessageBox.warning(self, "错误", "请先选择点云文件夹，或取消批量模式。")
+                QMessageBox.warning(self, tr("dlg_error"), tr("need_folder"))
                 return
             if self.labels_in_cloud_check.isChecked():
-                mode = "多分类" if self.multiclass_check.isChecked() else "二分类"
+                mode = tr("mode_multi") if self.multiclass_check.isChecked() else tr("mode_binary")
                 col = self.label_col_box.value()
-                self.log.append(f"🏷️ 批量模式将从每个点云文件的第 {col} 列读取{mode}标签。")
+                self.log.append(tr("batch_labels", col=col, mode=mode))
             elif self.label_file:
-                self.log.append("⚠️ 当前批量模式会忽略单个标签文件，请勾选“点云含标签”并指定标签列。")
+                self.log.append(tr("batch_ignore_label"))
 
             if self.noise_dir:
-                self.log.append(f"🌫️ 批量噪声文件夹：{self.noise_dir}。噪声文件名必须与对应干净点云相同。")
+                self.log.append(tr("batch_noise_dir", path=self.noise_dir))
             elif self.noise_file:
-                self.log.append("⚠️ 批量模式不会使用单个噪声文件，请选择噪声文件夹，并保证文件名与干净点云一一对应。")
+                self.log.append(tr("batch_ignore_noise"))
 
             txts = sorted([
                 os.path.join(self.terrain_dir, f)
@@ -1832,51 +2275,49 @@ class RenderUI(QWidget):
                 if f.lower().endswith(".txt")
             ])
             if not txts:
-                QMessageBox.information(self, "提示", "该文件夹下未找到 .txt 点云文件。")
+                QMessageBox.information(self, tr("dlg_info"), tr("no_txt"))
                 return
 
-            self.log.append(f"📁 将批量渲染 {len(txts)} 个文件：")
+            self.log.append(tr("batch_list", n=len(txts)))
             for p in txts:
                 self.log.append(f"- {os.path.basename(p)}")
                 matched_noise = self.find_matching_noise_file(p) if self.noise_dir else None
                 if self.noise_dir and matched_noise is None:
-                    self.log.append(
-                        f"⚠️ 未找到与 {os.path.basename(p)} 对应的噪声文件（文件名需相同），本文件不叠加噪声。"
-                    )
+                    self.log.append(tr("noise_missing", name=os.path.basename(p)))
                 jobs.append(self._snapshot_render_job(p, preview=False, noise_path=matched_noise))
-            self.log.append("开始批量渲染...")
-            done_message = "🎉 批量渲染完成！如需查看单个结果，请切换到单文件模式并载入 TIFF 预览。"
+            self.log.append(tr("batch_start"))
+            done_message = tr("batch_done")
         else:
             if not self.terrain_file:
-                QMessageBox.warning(self, "错误", "请先选择点云文件（或启用批量并选择文件夹）。")
+                QMessageBox.warning(self, tr("dlg_error"), tr("need_file"))
                 return
             self.refresh_output_label()
-            self.log.append("开始渲染（单文件）...")
+            self.log.append(tr("single_start"))
             jobs.append(self._snapshot_render_job(
                 self.terrain_file,
                 preview=True,
                 noise_path=self.noise_file or None,
             ))
-            done_message = "🎉 单文件渲染完成。"
+            done_message = tr("single_done")
 
         self._start_render_jobs(jobs, done_message)
 
     def reload_tiff_preview(self):
         if self._rendering:
-            QMessageBox.information(self, "请稍候", "正在渲染。请等待完成，或先取消当前渲染。")
+            QMessageBox.information(self, tr("dlg_wait"), tr("reload_busy"))
             return
         if not self.terrain_file:
-            QMessageBox.information(self, "提示", "请先在单文件模式下选择点云并完成一次渲染。")
+            QMessageBox.information(self, tr("dlg_info"), tr("reload_need_file"))
             return
         tiff_path = self.get_output_xml_path(self.terrain_file).replace(".xml", ".tiff")
         if not os.path.exists(tiff_path):
-            QMessageBox.information(self, "提示", "未找到TIFF文件，请先渲染或确认路径。")
+            QMessageBox.information(self, tr("dlg_info"), tr("reload_missing"))
             return
         try:
             self.show_image_on_label(read_tiff(tiff_path), self.render_preview)
-            self.log.append("🔄 已从TIFF重新载入预览")
+            self.log.append(tr("reload_ok"))
         except Exception as e:
-            self.log.append(f"⚠️ 预览载入失败：{e}")
+            self.log.append(tr("reload_fail", error=e))
 
 
 # =======================================
