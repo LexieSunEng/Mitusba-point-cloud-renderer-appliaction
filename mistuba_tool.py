@@ -1,3 +1,4 @@
+import math
 import sys
 import os
 import pickle
@@ -13,10 +14,10 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel, QFileDialog, QVBoxLayout,
     QHBoxLayout, QSpinBox, QDoubleSpinBox, QTextEdit, QMessageBox, QGroupBox,
     QFormLayout, QComboBox, QCheckBox, QColorDialog, QSizePolicy, QScrollArea,
-    QFrame, QSplitter, QProgressBar, QShortcut
+    QFrame, QSplitter, QProgressBar, QShortcut, QStackedWidget, QButtonGroup
 )
-from PyQt5.QtGui import QPixmap, QImage, QColor, QKeySequence
-from PyQt5.QtCore import Qt, QSettings, QThread, QObject, QTimer, pyqtSignal
+from PyQt5.QtGui import QPixmap, QImage, QColor, QKeySequence, QPainter, QPen, QPolygon, QBrush
+from PyQt5.QtCore import Qt, QSettings, QThread, QObject, QTimer, pyqtSignal, QPoint
 
 
 _UI_LANG = "zh"
@@ -54,6 +55,15 @@ _UI_TEXT = {
         "noise_radius": "噪声球半径",
         "floor_z": "底板高度 z",
         "camera_origin": "相机 origin",
+        "camera_angles": "相机角度",
+        "azimuth": "方位",
+        "elevation": "仰角",
+        "distance": "距离",
+        "view_mode": "放置相机",
+        "image_mode": "成图",
+        "orbit_hint": "点云位置固定。左键拖相机圆点可移动水平位置，右键调整相机高度；拖动地板可改变底板高度，数值会自动填入。",
+        "orbit_empty": "选择点云后，在固定场景里拖拽放置相机",
+        "orbit_load_fail": "⚠️ 无法预览该点云：{error}",
         "color_group": "5. 着色",
         "colormap": "色轴",
         "cmap_custom": "(自定义txt)",
@@ -206,6 +216,15 @@ _UI_TEXT = {
         "noise_radius": "Noise radius",
         "floor_z": "Floor height z",
         "camera_origin": "Camera origin",
+        "camera_angles": "Camera angles",
+        "azimuth": "Azimuth",
+        "elevation": "Elevation",
+        "distance": "Distance",
+        "view_mode": "Place camera",
+        "image_mode": "Render",
+        "orbit_hint": "The point cloud stays fixed. Drag the camera dot to move it horizontally, right-drag to change its height, and drag the floor to set the floor height. Values fill in automatically.",
+        "orbit_empty": "Choose a point cloud, then drag to place the camera in the fixed scene",
+        "orbit_load_fail": "⚠️ Could not preview this point cloud: {error}",
         "color_group": "5. Color",
         "colormap": "Colormap",
         "cmap_custom": "Custom txt",
@@ -1220,6 +1239,276 @@ def _style_path_label(label):
     label.setStyleSheet("color: #444; font-size: 12px;")
 
 
+def spherical_from_xyz(x, y, z):
+    """相机位置转方位角、仰角（度）和距离。Z 轴朝上，与渲染用的 lookat 一致。"""
+    radius = math.sqrt(x * x + y * y + z * z)
+    if radius < 1e-8:
+        return 0.0, 0.0, 1e-4
+    elevation = math.degrees(math.atan2(z, math.sqrt(x * x + y * y)))
+    azimuth = math.degrees(math.atan2(y, x))
+    return azimuth, elevation, radius
+
+
+def xyz_from_spherical(azimuth_deg, elevation_deg, radius):
+    azimuth = math.radians(azimuth_deg)
+    elevation = math.radians(elevation_deg)
+    radius = max(float(radius), 1e-4)
+    cos_el = math.cos(elevation)
+    return (
+        radius * cos_el * math.cos(azimuth),
+        radius * cos_el * math.sin(azimuth),
+        radius * math.sin(elevation),
+    )
+
+
+class OrbitPreview(QWidget):
+    """固定点云的观察窗。用户拖拽的是相机位置，点云和坐标轴不跟着转。"""
+
+    cameraChanged = pyqtSignal(float, float, float)
+    floorChanged = pyqtSignal(float)
+
+    _OVERVIEW_EYE = np.array([10.0, -10.0, 8.0], dtype=np.float64)
+    _OVERVIEW_FOV_X = 48.0
+    _FLOOR_HALF = 1.6
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(240)
+        self.setFocusPolicy(Qt.WheelFocus)
+        self.setMouseTracking(False)
+        self.setCursor(Qt.CrossCursor)
+        self._cam = np.array([-3.0, -3.0, 3.0], dtype=np.float64)
+        self._floor_z = -0.15
+        self._points = None
+        self._colors = None
+        self._drag = None
+        self._grab_offset = np.zeros(2, dtype=np.float64)
+        self.empty_text = ""
+
+    def set_empty_text(self, text):
+        self.empty_text = text
+        self.update()
+
+    def set_cloud(self, points, colors):
+        self._points = np.ascontiguousarray(points, dtype=np.float64)
+        self._colors = np.ascontiguousarray(colors, dtype=np.uint8)
+        self.update()
+
+    def set_camera_xyz(self, x, y, z):
+        self._cam = np.array([float(x), float(y), float(z)], dtype=np.float64)
+        self.update()
+
+    def set_floor_z(self, z):
+        self._floor_z = float(z)
+        self.update()
+
+    def _floor_corners(self):
+        half = self._FLOOR_HALF
+        z = self._floor_z
+        return np.array([
+            [-half, -half, z],
+            [half, -half, z],
+            [half, half, z],
+            [-half, half, z],
+        ], dtype=np.float64)
+
+    def _screen_of(self, world):
+        width = max(2, self.width())
+        height = max(2, self.height())
+        eye, right, up, forward, focal = self._basis(width, height)
+        sx, sy, cz = self._project(world, eye, right, up, forward, focal, width, height)
+        return sx, sy, cz
+
+    def _near_camera_marker(self, px, py):
+        sx, sy, cz = self._screen_of(self._cam.reshape(1, 3))
+        if float(cz[0]) <= 0.05:
+            return False
+        return (px - float(sx[0])) ** 2 + (py - float(sy[0])) ** 2 <= 16.0 ** 2
+
+    def _hits_floor(self, px, py):
+        hit = self._hit_horizontal(px, py, self._floor_z)
+        if hit is None:
+            return False
+        return abs(hit[0]) <= self._FLOOR_HALF and abs(hit[1]) <= self._FLOOR_HALF
+
+    def _emit_camera(self):
+        self.cameraChanged.emit(float(self._cam[0]), float(self._cam[1]), float(self._cam[2]))
+        self.update()
+
+    def _basis(self, width, height):
+        eye = self._OVERVIEW_EYE
+        forward = -eye
+        forward = forward / np.linalg.norm(forward)
+        world_up = np.array([0.0, 0.0, 1.0])
+        right = np.cross(forward, world_up)
+        right = right / np.linalg.norm(right)
+        up = np.cross(right, forward)
+        focal = (width * 0.5) / math.tan(math.radians(self._OVERVIEW_FOV_X * 0.5))
+        return eye, right, up, forward, focal
+
+    def _project(self, world, eye, right, up, forward, focal, width, height):
+        rel = np.asarray(world, dtype=np.float64) - eye
+        if rel.ndim == 1:
+            rel = rel.reshape(1, 3)
+        cx = rel @ right
+        cy = rel @ up
+        cz = rel @ forward
+        sx = width * 0.5 + focal * cx / np.maximum(cz, 1e-6)
+        sy = height * 0.5 - focal * cy / np.maximum(cz, 1e-6)
+        return sx, sy, cz
+
+    def _ray(self, px, py):
+        width = max(2, self.width())
+        height = max(2, self.height())
+        eye, right, up, forward, focal = self._basis(width, height)
+        direction = forward + right * ((px - width * 0.5) / focal) + up * ((height * 0.5 - py) / focal)
+        direction = direction / np.linalg.norm(direction)
+        return eye, direction
+
+    def _hit_horizontal(self, px, py, plane_z):
+        eye, direction = self._ray(px, py)
+        if abs(direction[2]) < 1e-6:
+            return None
+        travel = (plane_z - eye[2]) / direction[2]
+        if travel <= 0:
+            return None
+        return eye + travel * direction
+
+    def _begin_camera_drag(self, px, py):
+        hit = self._hit_horizontal(px, py, self._cam[2])
+        if hit is None:
+            return
+        self._drag = "xy"
+        self._grab_offset = self._cam[:2] - hit[:2]
+        self.setCursor(Qt.ClosedHandCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            if self._near_camera_marker(event.x(), event.y()):
+                self._begin_camera_drag(event.x(), event.y())
+            elif self._hits_floor(event.x(), event.y()):
+                self._drag = "floor"
+                self._last_y = event.y()
+                self.setCursor(Qt.SizeVerCursor)
+            else:
+                self._begin_camera_drag(event.x(), event.y())
+        elif event.button() == Qt.RightButton:
+            self._drag = "z"
+            self._last_y = event.y()
+            self.setCursor(Qt.SizeVerCursor)
+
+    def mouseMoveEvent(self, event):
+        if self._drag == "xy":
+            hit = self._hit_horizontal(event.x(), event.y(), self._cam[2])
+            if hit is None:
+                return
+            self._cam[0] = hit[0] + self._grab_offset[0]
+            self._cam[1] = hit[1] + self._grab_offset[1]
+            self._cam[:2] = np.clip(self._cam[:2], -40.0, 40.0)
+            self._emit_camera()
+        elif self._drag == "z":
+            delta_y = event.y() - self._last_y
+            self._last_y = event.y()
+            width = max(2, self.width())
+            height = max(2, self.height())
+            eye, _right, _up, forward, focal = self._basis(width, height)
+            depth = max(float(np.dot(self._cam - eye, forward)), 0.5)
+            self._cam[2] = float(np.clip(self._cam[2] - delta_y * depth / focal, -40.0, 40.0))
+            self._emit_camera()
+        elif self._drag == "floor":
+            delta_y = event.y() - self._last_y
+            self._last_y = event.y()
+            width = max(2, self.width())
+            height = max(2, self.height())
+            eye, _right, _up, forward, focal = self._basis(width, height)
+            center = np.array([0.0, 0.0, self._floor_z])
+            depth = max(float(np.dot(center - eye, forward)), 0.5)
+            self._floor_z = float(np.clip(self._floor_z - delta_y * depth / focal, -40.0, 40.0))
+            self.floorChanged.emit(self._floor_z)
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() in (Qt.LeftButton, Qt.RightButton):
+            self._drag = None
+            self.setCursor(Qt.CrossCursor)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        width = max(2, self.width())
+        height = max(2, self.height())
+        image = np.empty((height, width, 3), dtype=np.uint8)
+        image[:] = (247, 247, 247)
+        eye, right, up, forward, focal = self._basis(width, height)
+
+        grid = []
+        half = self._FLOOR_HALF
+        for value in np.linspace(-half, half, 5):
+            grid.append([[-half, value, self._floor_z], [half, value, self._floor_z]])
+            grid.append([[value, -half, self._floor_z], [value, half, self._floor_z]])
+
+        if self._points is not None and len(self._points):
+            sx, sy, cz = self._project(self._points, eye, right, up, forward, focal, width, height)
+            order = np.argsort(cz)
+            colors = self._colors[order]
+            xi = np.rint(sx[order]).astype(np.int32)
+            yi = np.rint(sy[order]).astype(np.int32)
+            depth = cz[order]
+            valid = (depth > 0.05) & (xi >= 0) & (yi >= 0) & (xi < width) & (yi < height)
+            image[yi[valid], xi[valid]] = colors[valid]
+            if int(valid.sum()) <= 8000:
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    x2 = xi + dx
+                    y2 = yi + dy
+                    inside = valid & (x2 >= 0) & (y2 >= 0) & (x2 < width) & (y2 < height)
+                    image[y2[inside], x2[inside]] = colors[inside]
+
+        qimage = QImage(image.data, width, height, width * 3, QImage.Format_RGB888).copy()
+        painter.drawImage(0, 0, qimage)
+
+        floor_s = self._project(self._floor_corners(), eye, right, up, forward, focal, width, height)
+        if np.all(floor_s[2] > 0.05):
+            polygon = QPolygon([QPoint(int(floor_s[0][i]), int(floor_s[1][i])) for i in range(4)])
+            painter.setPen(QPen(QColor("#7d92a3"), 2))
+            painter.setBrush(QBrush(QColor(176, 190, 202, 120)))
+            painter.drawPolygon(polygon)
+            painter.setBrush(Qt.NoBrush)
+
+        for segment in grid:
+            xs, ys, zs = self._project(np.asarray(segment), eye, right, up, forward, focal, width, height)
+            if zs[0] > 0.05 and zs[1] > 0.05:
+                painter.setPen(QPen(QColor("#d0d0d0"), 1))
+                painter.drawLine(int(xs[0]), int(ys[0]), int(xs[1]), int(ys[1]))
+
+        axis_len = 1.0
+        origin = np.zeros(3)
+        for color, tip in (
+            (QColor("#d64545"), np.array([axis_len, 0.0, 0.0])),
+            (QColor("#3c9d4a"), np.array([0.0, axis_len, 0.0])),
+            (QColor("#3a6fdb"), np.array([0.0, 0.0, axis_len])),
+        ):
+            xs, ys, zs = self._project(np.vstack([origin, tip]), eye, right, up, forward, focal, width, height)
+            if zs[0] > 0.05 and zs[1] > 0.05:
+                painter.setPen(QPen(color, 2))
+                painter.drawLine(int(xs[0]), int(ys[0]), int(xs[1]), int(ys[1]))
+
+        foot = np.array([self._cam[0], self._cam[1], 0.0])
+        xs, ys, zs = self._project(np.vstack([self._cam, origin, foot]), eye, right, up, forward, focal, width, height)
+        if zs[0] > 0.05 and zs[1] > 0.05:
+            painter.setPen(QPen(QColor("#e07a00"), 2))
+            painter.drawLine(int(xs[0]), int(ys[0]), int(xs[1]), int(ys[1]))
+        if zs[0] > 0.05 and zs[2] > 0.05:
+            painter.setPen(QPen(QColor("#e0b060"), 1, Qt.DashLine))
+            painter.drawLine(int(xs[0]), int(ys[0]), int(xs[2]), int(ys[2]))
+        if zs[0] > 0.05:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor("#e07a00"))
+            painter.drawEllipse(int(xs[0]) - 6, int(ys[0]) - 6, 12, 12)
+
+        if self._points is None and self.empty_text:
+            painter.setPen(QColor("#888888"))
+            painter.drawText(self.rect(), Qt.AlignCenter, self.empty_text)
+
+
 # =======================================
 # UI 实现（增强版）
 # =======================================
@@ -1233,7 +1522,7 @@ class RenderUI(QWidget):
         self.lang = "en" if saved_lang == "en" else "zh"
         set_ui_lang(self.lang)
 
-        self.setWindowTitle("MISTUBA RENDER (version:25/11/10/Author:sly)")
+        self.setWindowTitle("MISTUBA RENDER (version:2.0.0)")
         self.setMinimumSize(960, 640)
         self.resize(1280, 820)
         self.setStyleSheet("""
@@ -1386,6 +1675,39 @@ class RenderUI(QWidget):
         cam_wrap = QWidget(); cam_wrap.setLayout(cam_layout)
         form.addRow(tr("camera_origin"), cam_wrap)
         self.lbl_camera = form.labelForField(cam_wrap)
+
+        angle_layout = QHBoxLayout()
+        self.lbl_az = QLabel(tr("azimuth"))
+        self.cam_az = QDoubleSpinBox()
+        self.cam_az.setRange(-180.0, 180.0)
+        self.cam_az.setDecimals(2)
+        self.cam_az.setSingleStep(1.0)
+        self.cam_az.setSuffix("°")
+        self.lbl_el = QLabel(tr("elevation"))
+        self.cam_el = QDoubleSpinBox()
+        self.cam_el.setRange(-89.0, 89.0)
+        self.cam_el.setDecimals(2)
+        self.cam_el.setSingleStep(1.0)
+        self.cam_el.setSuffix("°")
+        self.lbl_dist = QLabel(tr("distance"))
+        self.cam_dist = QDoubleSpinBox()
+        self.cam_dist.setRange(0.2, 80.0)
+        self.cam_dist.setDecimals(3)
+        self.cam_dist.setSingleStep(0.1)
+        az0, el0, dist0 = spherical_from_xyz(-3.0, -3.0, 3.0)
+        self.cam_az.setValue(az0)
+        self.cam_el.setValue(el0)
+        self.cam_dist.setValue(dist0)
+        angle_layout.addWidget(self.lbl_az)
+        angle_layout.addWidget(self.cam_az)
+        angle_layout.addWidget(self.lbl_el)
+        angle_layout.addWidget(self.cam_el)
+        angle_layout.addWidget(self.lbl_dist)
+        angle_layout.addWidget(self.cam_dist)
+        angle_wrap = QWidget()
+        angle_wrap.setLayout(angle_layout)
+        form.addRow(tr("camera_angles"), angle_wrap)
+        self.lbl_angles = form.labelForField(angle_wrap)
         self.param_box.setLayout(form)
         left.addWidget(self.param_box)
 
@@ -1488,12 +1810,43 @@ class RenderUI(QWidget):
         z_range_layout.addWidget(self.lbl_zmax)
         pv.addLayout(z_range_layout)
 
+        view_row = QHBoxLayout()
+        self.btn_view_orbit = QPushButton(tr("view_mode"))
+        self.btn_view_image = QPushButton(tr("image_mode"))
+        self.btn_view_orbit.setCheckable(True)
+        self.btn_view_image.setCheckable(True)
+        self.btn_view_orbit.setChecked(True)
+        self._view_mode_group = QButtonGroup(self)
+        self._view_mode_group.setExclusive(True)
+        self._view_mode_group.addButton(self.btn_view_orbit)
+        self._view_mode_group.addButton(self.btn_view_image)
+        self.btn_view_orbit.clicked.connect(self._show_orbit_page)
+        self.btn_view_image.clicked.connect(self._show_image_page)
+        view_row.addWidget(self.btn_view_orbit)
+        view_row.addWidget(self.btn_view_image)
+        view_row.addStretch(1)
+        pv.addLayout(view_row)
+        self.lbl_orbit_hint = QLabel(tr("orbit_hint"))
+        self.lbl_orbit_hint.setWordWrap(True)
+        self.lbl_orbit_hint.setStyleSheet("color: #666; font-size: 12px;")
+        pv.addWidget(self.lbl_orbit_hint)
+
+        self.orbit_preview = OrbitPreview()
+        self.orbit_preview.set_empty_text(tr("orbit_empty"))
+        self.orbit_preview.cameraChanged.connect(self._on_orbit_camera)
+        self.orbit_preview.floorChanged.connect(self._on_orbit_floor)
         self.render_preview = QLabel(tr("preview_placeholder"))
         self.render_preview.setAlignment(Qt.AlignCenter)
         self.render_preview.setMinimumHeight(240)
         self.render_preview.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.render_preview.setStyleSheet("border: 1px solid #ccc; background: #f7f7f7;")
-        pv.addWidget(self.render_preview, 1)
+        self.preview_stack = QStackedWidget()
+        self.preview_stack.addWidget(self.orbit_preview)
+        self.preview_stack.addWidget(self.render_preview)
+        self.preview_stack.setMinimumHeight(240)
+        pv.addWidget(self.preview_stack, 1)
+        self._orbit_points = None
+        self._syncing_camera = False
         self.preview_box.setLayout(pv)
         self.preview_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
@@ -1568,9 +1921,16 @@ class RenderUI(QWidget):
         self.ball_size_box.valueChanged.connect(self.save_settings)
         self.noise_ball_size_box.valueChanged.connect(self.save_settings)
         self.floor_z_box.valueChanged.connect(self.save_settings)
+        self.floor_z_box.valueChanged.connect(self._on_floor_box_changed)
         self.cam_x.valueChanged.connect(self.save_settings)
         self.cam_y.valueChanged.connect(self.save_settings)
         self.cam_z.valueChanged.connect(self.save_settings)
+        self.cam_x.valueChanged.connect(self._on_camera_xyz_changed)
+        self.cam_y.valueChanged.connect(self._on_camera_xyz_changed)
+        self.cam_z.valueChanged.connect(self._on_camera_xyz_changed)
+        self.cam_az.valueChanged.connect(self._on_camera_angle_changed)
+        self.cam_el.valueChanged.connect(self._on_camera_angle_changed)
+        self.cam_dist.valueChanged.connect(self._on_camera_angle_changed)
         self.cmap_combo.currentTextChanged.connect(self.save_settings)
         self.labels_in_cloud_check.stateChanged.connect(self.on_labels_in_cloud_changed)
         self.label_col_box.valueChanged.connect(self.on_label_col_changed)
@@ -1652,6 +2012,11 @@ class RenderUI(QWidget):
         self.update_colorbar()
         self.refresh_label_source_ui()
         self.refresh_label_mode_ui()
+        self._on_camera_xyz_changed()
+        if self.terrain_file and os.path.exists(self.terrain_file):
+            self._load_orbit_from_file(self.terrain_file)
+        elif self.terrain_dir and os.path.isdir(self.terrain_dir):
+            self._load_orbit_from_dir(self.terrain_dir)
 
     def save_settings(self):
         self.settings.setValue("batch_check", self.batch_check.isChecked())
@@ -1744,6 +2109,14 @@ class RenderUI(QWidget):
         self.lbl_noise_radius.setText(tr("noise_radius"))
         self.lbl_floor.setText(tr("floor_z"))
         self.lbl_camera.setText(tr("camera_origin"))
+        self.lbl_angles.setText(tr("camera_angles"))
+        self.lbl_az.setText(tr("azimuth"))
+        self.lbl_el.setText(tr("elevation"))
+        self.lbl_dist.setText(tr("distance"))
+        self.btn_view_orbit.setText(tr("view_mode"))
+        self.btn_view_image.setText(tr("image_mode"))
+        self.lbl_orbit_hint.setText(tr("orbit_hint"))
+        self.orbit_preview.set_empty_text(tr("orbit_empty"))
         self.color_box.setTitle(tr("color_group"))
         self.lbl_cmap_name.setText(tr("colormap"))
         self.cmap_combo.blockSignals(True)
@@ -1823,6 +2196,7 @@ class RenderUI(QWidget):
             self.cmap = get_builtin_cmap(self.cmap_combo.currentText())
             self.refresh_cmap_label()
             self.update_colorbar()
+            self._refresh_orbit_colors()
 
     def load_custom_cmap(self):
         file, _ = QFileDialog.getOpenFileName(self, tr("choose_cmap"), "", tr("filter_txt"))
@@ -1834,6 +2208,7 @@ class RenderUI(QWidget):
             self.cmap_combo.setCurrentIndex(self.cmap_combo.findData(CUSTOM_CMAP_TOKEN))
             self.refresh_cmap_label()
             self.update_colorbar()
+            self._refresh_orbit_colors()
             self.log.append(tr("cmap_loaded", path=file))
         except Exception as e:
             QMessageBox.critical(self, tr("cmap_fail"), str(e))
@@ -1869,6 +2244,117 @@ class RenderUI(QWidget):
 
     # -------------------- 公用更新 --------------------
 
+    def _show_orbit_page(self):
+        self.preview_stack.setCurrentWidget(self.orbit_preview)
+        self.btn_view_orbit.setChecked(True)
+
+    def _show_image_page(self):
+        self.preview_stack.setCurrentWidget(self.render_preview)
+        self.btn_view_image.setChecked(True)
+        QTimer.singleShot(0, self._update_preview_pixmap)
+
+    def _on_orbit_floor(self, z):
+        self.floor_z_box.blockSignals(True)
+        self.floor_z_box.setValue(z)
+        self.floor_z_box.blockSignals(False)
+        self.orbit_preview.set_floor_z(self.floor_z_box.value())
+        self.save_settings()
+
+    def _on_floor_box_changed(self, value):
+        self.orbit_preview.set_floor_z(value)
+
+    def _on_orbit_camera(self, x, y, z):
+        azimuth, elevation, distance = spherical_from_xyz(x, y, z)
+        elevation = max(-89.0, min(89.0, elevation))
+        self._syncing_camera = True
+        boxes = (self.cam_x, self.cam_y, self.cam_z, self.cam_az, self.cam_el, self.cam_dist)
+        for box in boxes:
+            box.blockSignals(True)
+        self.cam_x.setValue(x)
+        self.cam_y.setValue(y)
+        self.cam_z.setValue(z)
+        self.cam_az.setValue(azimuth)
+        self.cam_el.setValue(elevation)
+        self.cam_dist.setValue(distance)
+        for box in boxes:
+            box.blockSignals(False)
+        self._syncing_camera = False
+        self.save_settings()
+
+    def _on_camera_xyz_changed(self, _value=None):
+        if self._syncing_camera:
+            return
+        x, y, z = self.cam_x.value(), self.cam_y.value(), self.cam_z.value()
+        azimuth, elevation, distance = spherical_from_xyz(x, y, z)
+        elevation = max(-89.0, min(89.0, elevation))
+        distance = max(0.2, min(80.0, distance))
+        self._syncing_camera = True
+        for box in (self.cam_az, self.cam_el, self.cam_dist):
+            box.blockSignals(True)
+        self.cam_az.setValue(azimuth)
+        self.cam_el.setValue(elevation)
+        self.cam_dist.setValue(distance)
+        for box in (self.cam_az, self.cam_el, self.cam_dist):
+            box.blockSignals(False)
+        self._syncing_camera = False
+        self.orbit_preview.set_camera_xyz(x, y, z)
+
+    def _on_camera_angle_changed(self, _value=None):
+        if self._syncing_camera:
+            return
+        x, y, z = xyz_from_spherical(self.cam_az.value(), self.cam_el.value(), self.cam_dist.value())
+        self._syncing_camera = True
+        for box in (self.cam_x, self.cam_y, self.cam_z):
+            box.blockSignals(True)
+        self.cam_x.setValue(x)
+        self.cam_y.setValue(y)
+        self.cam_z.setValue(z)
+        for box in (self.cam_x, self.cam_y, self.cam_z):
+            box.blockSignals(False)
+        self._syncing_camera = False
+        self.orbit_preview.set_camera_xyz(x, y, z)
+        self.save_settings()
+
+    def _refresh_orbit_colors(self):
+        if self._orbit_points is None:
+            return
+        self._set_orbit_cloud(self._orbit_points, switch_page=False)
+
+    def _set_orbit_cloud(self, points, switch_page=True):
+        pts = np.asarray(points, dtype=np.float64)
+        if pts.ndim != 2 or pts.shape[0] == 0 or pts.shape[1] < 3:
+            return
+        pts = pts[:, :3]
+        if pts.shape[0] > 60000:
+            index = np.linspace(0, pts.shape[0] - 1, 60000).astype(np.int64)
+            pts = pts[index]
+        self._orbit_points = pts
+        z = pts[:, 2]
+        span = max(1e-12, float(z.max() - z.min()))
+        samples = (z - float(z.min())) / span
+        rgb = np.asarray(self.cmap(samples), dtype=np.float64)[..., :3]
+        colors = np.clip(rgb * 255.0, 0, 255).astype(np.uint8)
+        self.orbit_preview.set_cloud(pts, colors)
+        if switch_page:
+            self._show_orbit_page()
+
+    def _load_orbit_from_dir(self, folder):
+        names = sorted(name for name in os.listdir(folder) if name.lower().endswith(".txt"))
+        if names:
+            self._load_orbit_from_file(os.path.join(folder, names[0]))
+
+    def _load_orbit_from_file(self, path):
+        try:
+            terrain, _labels = load_pointcloud(
+                path,
+                with_labels=False,
+                multiclass=False,
+                label_col=self.label_col_box.value(),
+            )
+            self._set_orbit_cloud(normalize_pointcloud(terrain)[0])
+        except Exception as e:
+            self.log.append(tr("orbit_load_fail", error=e))
+
     def set_z_minmax_labels(self, zmin, zmax):
         self.lbl_zmin.setText(tr("zmin", value=f"{zmin:.4f}"))
         self.lbl_zmax.setText(tr("zmax", value=f"{zmax:.4f}"))
@@ -1877,7 +2363,7 @@ class RenderUI(QWidget):
         pix = numpy_rgb_to_qpixmap(rgb)
         if label is self.render_preview:
             self._preview_pix = pix
-            self._update_preview_pixmap()
+            self._show_image_page()
             return
         w = max(1, label.width())
         h = max(1, label.height())
@@ -1938,6 +2424,7 @@ class RenderUI(QWidget):
                 self.zmin = float(terrain[:, 2].min())
                 self.zmax = float(terrain[:, 2].max())
                 self.set_z_minmax_labels(self.zmin, self.zmax)
+                self._set_orbit_cloud(terrain)
                 if embedded_labels is not None:
                     self.remember_label_classes(embedded_labels)
             except Exception as e:
@@ -1952,6 +2439,7 @@ class RenderUI(QWidget):
             self.refresh_terrain_labels()
             self.refresh_output_label()
             self.batch_check.setChecked(True)
+            self._load_orbit_from_dir(d)
             self.save_settings()
 
     def choose_noise(self):
