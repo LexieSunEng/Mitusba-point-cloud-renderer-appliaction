@@ -3,7 +3,7 @@
 A lightweight GUI tool for point cloud visualization and rendering, built on Mitsuba. Available in Chinese and English.
 
 <p align="center">
-  <img src="imgs/view2.0.3.png" width="400">
+  <img src="imgs/view2.0.3.png" width="800">
 </p>
 
 ## Features
